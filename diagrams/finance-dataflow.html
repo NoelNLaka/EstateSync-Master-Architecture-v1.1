@@ -1,0 +1,1914 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-preset="classic" data-motion="live">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EstateSync Master Architecture — Finance data flow Diagram</title>
+<meta name="description" content="Finance and payment data flow: the property rent path from lease and charge through payment and reconciliation, the separate SaaS subscription billing path with its provider webhook, and the append-oriented financial ledger that both end in.">
+<meta name="generator" content="estatesync-diagram-builder">
+  <script>
+    (function () {
+      try {
+        var theme = null;
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var param = params.get('theme');
+          if (param === 'light' || param === 'dark') theme = param;
+          if (params.get('embed') === '1') document.documentElement.setAttribute('data-embed', 'true');
+          if (params.get('present') === '1') document.documentElement.setAttribute('data-present', 'true');
+        } catch (_) {}
+        if (!theme) { try { theme = localStorage.getItem('archify-theme'); } catch (_) {} }
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+        try { document.documentElement.setAttribute('data-motion', localStorage.getItem('estatesync-motion') === 'still' ? 'still' : 'live'); } catch (_) {}
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
+<style>
+/* ==========================================================================
+   EstateSync architecture site — shared chrome.
+
+   The token block is deliberately the same vocabulary the archify diagram
+   pages use (--frontend-stroke, --arrow-emphasis, --mask, ...) so the overview
+   page and every diagram read as one system, in both themes.
+   ========================================================================== */
+
+:root,
+[data-theme="dark"] {
+  --bg: #020617;
+  --grid: #1e293b;
+  --text: #ffffff;
+  --text-muted: #94a3b8;
+  --text-dim: #475569;
+  /* UI chrome needs more contrast than SVG .t-dim accents. */
+  --text-faint: #7d8da1;
+
+  --panel: rgba(15, 23, 42, 0.5);
+  --panel-border: #1e293b;
+  --panel-hover: rgba(30, 41, 59, 0.6);
+  --lane-fill: rgba(15, 23, 42, 0.22);
+  --lane-stroke: #334155;
+
+  --arrow: #64748b;
+  --arrow-emphasis: #34d399;
+  --mask: #0f172a;
+
+  --frontend-fill: rgba(8, 51, 68, 0.4);
+  --frontend-stroke: #22d3ee;
+  --backend-fill: rgba(6, 78, 59, 0.4);
+  --backend-stroke: #34d399;
+  --database-fill: rgba(76, 29, 149, 0.3);
+  --database-stroke: #a78bfa;
+  --cloud-fill: rgba(120, 53, 15, 0.4);
+  --cloud-stroke: #fbbf24;
+  --security-fill: rgba(136, 19, 55, 0.35);
+  --security-stroke: #fb7185;
+  --external-fill: rgba(30, 41, 59, 0.5);
+  --external-stroke: #94a3b8;
+  --queue-fill: rgba(12, 74, 110, 0.35);
+  --queue-stroke: #38bdf8;
+  --actor-fill: rgba(51, 65, 85, 0.45);
+  --actor-stroke: #e2e8f0;
+  --storage-fill: rgba(19, 78, 74, 0.4);
+  --storage-stroke: #2dd4bf;
+
+  --accent: #34d399;
+
+  --toolbar-bg: rgba(15, 23, 42, 0.85);
+  --toolbar-menu-bg: rgba(2, 6, 23, 0.96);
+  --toolbar-border: #334155;
+  --toolbar-text: #cbd5e1;
+  --toolbar-hover: #1e293b;
+
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --grid: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+  --text-faint: #64748b;
+
+  --panel: #ffffff;
+  --panel-border: #e2e8f0;
+  --panel-hover: #f1f5f9;
+  --lane-fill: rgba(255, 255, 255, 0.6);
+  --lane-stroke: #cbd5e1;
+
+  --arrow: #94a3b8;
+  --arrow-emphasis: #059669;
+  --mask: #ffffff;
+
+  --frontend-fill: #ecfeff;
+  --frontend-stroke: #0891b2;
+  --backend-fill: #ecfdf5;
+  --backend-stroke: #059669;
+  --database-fill: #f5f3ff;
+  --database-stroke: #7c3aed;
+  --cloud-fill: #fffbeb;
+  --cloud-stroke: #d97706;
+  --security-fill: #fff1f2;
+  --security-stroke: #e11d48;
+  --external-fill: #f8fafc;
+  --external-stroke: #64748b;
+  --queue-fill: #f0f9ff;
+  --queue-stroke: #0284c7;
+  --actor-fill: #f1f5f9;
+  --actor-stroke: #475569;
+  --storage-fill: #f0fdfa;
+  --storage-stroke: #0d9488;
+
+  --accent: #059669;
+
+  --toolbar-bg: rgba(255, 255, 255, 0.92);
+  --toolbar-menu-bg: rgba(255, 255, 255, 0.98);
+  --toolbar-border: #cbd5e1;
+  --toolbar-text: #334155;
+  --toolbar-hover: #f1f5f9;
+
+  --shadow: 0 18px 40px rgba(15, 23, 42, 0.10);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.toolbar {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 100;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+}
+.toolbar button,
+.toolbar a.toolbar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-bg);
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.72rem;
+  text-decoration: none;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.toolbar button:hover,
+.toolbar a.toolbar-link:hover { background: var(--toolbar-hover); color: var(--text); }
+.toolbar button[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
+.toolbar button:focus-visible { outline: 2px solid var(--frontend-stroke); outline-offset: 1px; }
+
+.toolbar-wrap { position: relative; }
+.toolbar-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  min-width: 11rem;
+  padding: 0.3rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+  display: none;
+  flex-direction: column;
+  gap: 0.1rem;
+  z-index: 2;
+}
+.toolbar-menu[data-open="true"] { display: flex; }
+.toolbar-menu button {
+  border: 0;
+  background: transparent;
+  justify-content: flex-start;
+  border-radius: 0.4rem;
+  white-space: nowrap;
+}
+.toolbar-menu button:hover { background: var(--toolbar-hover); }
+
+/* ------------------------------------------------------------ overview page */
+
+.overview { padding: 2rem; }
+.overview .container { width: 100%; max-width: 1180px; margin: 0 auto; }
+
+.eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.9rem;
+}
+h1 {
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 0 0 0.9rem;
+  letter-spacing: -0.01em;
+}
+.overview .header { padding: 2.5rem 0 0; margin-bottom: 2.5rem; }
+.subtitle { color: var(--text-muted); max-width: 66ch; margin: 0 0 1.4rem; }
+.header-links { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.header-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.75rem;
+}
+.header-links a:hover { color: var(--text); border-color: var(--accent); }
+
+/* Grid lines are drawn per-tile rather than by a 1px gap over a coloured
+   container, so a partly-filled last row leaves background, not a block. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1px;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  margin-bottom: 3rem;
+}
+.stat { background: var(--bg); padding: 1.1rem 1rem; box-shadow: 0 0 0 1px var(--panel-border); }
+.stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+.stat-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 0.35rem;
+}
+
+.overview section { margin-bottom: 3.25rem; }
+h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+h2 .num { color: var(--text-dim); font-size: 0.8rem; font-weight: 400; }
+.section-lede { color: var(--text-muted); max-width: 70ch; margin: 0 0 1.5rem; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; }
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.card:hover {
+  border-color: var(--card-accent, var(--accent));
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.card-kind {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--card-accent, var(--accent));
+  margin-bottom: 0.7rem;
+}
+.card h3 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.55rem; }
+.card p { color: var(--text-muted); margin: 0 0 1rem; font-size: 0.82rem; }
+.card-answers {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  flex: 1;
+}
+.card-answers li { padding-left: 1rem; position: relative; }
+.card-answers li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--card-accent, var(--accent));
+  opacity: 0.6;
+}
+.card-open { font-size: 0.75rem; color: var(--card-accent, var(--accent)); }
+
+.panel {
+  padding: 1.4rem 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+}
+.panel + .panel { margin-top: 1rem; }
+.panel p { margin: 0 0 0.9rem; color: var(--text-muted); }
+.panel p:last-child { margin-bottom: 0; }
+.panel strong { color: var(--text); font-weight: 600; }
+.panel ol, .panel ul { margin: 0 0 0.9rem; padding-left: 1.3rem; color: var(--text-muted); }
+.panel li { margin-bottom: 0.3rem; }
+.panel > :last-child { margin-bottom: 0; }
+
+code {
+  font-family: inherit;
+  font-size: 0.85em;
+  padding: 0.1em 0.4em;
+  border-radius: 0.3rem;
+  background: var(--panel-hover);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+}
+.callout { border-left: 3px solid var(--security-stroke); }
+.callout .callout-tag {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--security-stroke);
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.table-wrap { overflow-x: auto; border-radius: 0.75rem; border: 1px solid var(--panel-border); }
+.panel .table-wrap { margin: 0.2rem 0 0.9rem; }
+.panel > .table-wrap:last-child { margin-bottom: 0; }
+
+/* Rollout checklists: an empty box, not a ticked one -- the document is the
+   checklist, and nothing here should imply an item is done. */
+ul.checklist { list-style: none; padding-left: 0; }
+ul.checklist li { padding-left: 1.35rem; position: relative; }
+ul.checklist li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.28em;
+  width: 0.72em;
+  height: 0.72em;
+  border: 1px solid var(--panel-border);
+  border-radius: 2px;
+  background: var(--panel-hover);
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.8rem; min-width: 34rem; }
+th, td {
+  padding: 0.7rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--panel-border);
+  vertical-align: top;
+}
+th {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 500;
+  background: var(--panel);
+}
+tbody tr:last-child td { border-bottom: 0; }
+td { color: var(--text-muted); }
+td:first-child { color: var(--text); }
+
+.domains { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; }
+.domain {
+  padding: 1rem 1.1rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  border-top: 2px solid var(--domain-accent, var(--accent));
+}
+.domain h4 { margin: 0 0 0.6rem; font-size: 0.8rem; font-weight: 600; color: var(--domain-accent, var(--accent)); }
+.domain ul { list-style: none; margin: 0; padding: 0; font-size: 0.75rem; color: var(--text-muted); }
+
+footer.overview-footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--panel-border);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  justify-content: space-between;
+}
+footer.overview-footer a { color: var(--text-muted); }
+
+/* --------------------------------------------------------- diagram page shell */
+
+.diagram-page { padding: 0; overflow: hidden; }
+.diagram-head {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 3.4rem 1.25rem 1rem;
+}
+.diagram-head h1 { font-size: clamp(1.2rem, 2.6vw, 1.7rem); margin-bottom: 0.5rem; }
+.diagram-head p { color: var(--text-muted); max-width: 76ch; margin: 0; font-size: 0.82rem; }
+.diagram-head .kind {
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--badge-accent, var(--accent));
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  height: clamp(420px, 70vh, 760px);
+  margin: 0.5rem 0 0;
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--bg);
+  touch-action: none;
+  cursor: grab;
+}
+.stage.is-panning { cursor: grabbing; user-select: none; }
+.stage svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  shape-rendering: geometricPrecision;
+}
+.stage.is-animating svg { transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+.stage.is-animating svg * { transition: none; }
+
+.zoom-bar {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.9rem;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.15rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(8px);
+}
+.zoom-bar button {
+  border: 0;
+  background: transparent;
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.72rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0 0.3rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+.zoom-bar button:hover { background: var(--toolbar-hover); color: var(--text); }
+.zoom-bar .zoom-level { font-size: 0.66rem; color: var(--text-faint); min-width: 3rem; text-align: center; }
+
+.legend {
+  position: absolute;
+  left: 0.9rem;
+  bottom: 0.9rem;
+  z-index: 11;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  max-width: min(60%, 34rem);
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--panel-border);
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(8px);
+  font-size: 0.64rem;
+  color: var(--text-muted);
+}
+.legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.legend i { width: 9px; height: 9px; border-radius: 2px; border: 1px solid; display: inline-block; }
+
+/* ---------------------------------------------------------------- guide drawer */
+
+.guide {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 14;
+  width: min(23rem, calc(100% - 1.8rem));
+  max-height: calc(100% - 1.8rem);
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+  display: none;
+}
+.guide[data-open="true"] { display: block; }
+.guide h2 { font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 0.6rem; display: block; }
+.guide-title { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.4rem; }
+.guide-caption { font-size: 0.76rem; color: var(--text-muted); margin: 0 0 0.9rem; }
+.guide-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.9rem; }
+.guide-actions button {
+  border: 1px solid var(--toolbar-border);
+  background: transparent;
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+.guide-actions button:hover { background: var(--toolbar-hover); color: var(--text); }
+.guide-chapters { list-style: none; margin: 0; padding: 0; counter-reset: chapter; }
+.guide-chapters li { margin-bottom: 0.15rem; }
+.guide-chapters button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+.guide-chapters button:hover { background: var(--toolbar-hover); color: var(--text); }
+.guide-chapters button[aria-current="true"] { background: var(--toolbar-hover); color: var(--accent); }
+
+/* ---------------------------------------------------------------- focus card */
+
+.focus {
+  position: absolute;
+  left: 0.9rem;
+  top: 0.9rem;
+  z-index: 13;
+  width: min(20rem, calc(100% - 1.8rem));
+  max-height: calc(100% - 4.5rem);
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--toolbar-border);
+  border-left: 3px solid var(--focus-accent, var(--accent));
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+  display: none;
+}
+.focus[data-open="true"] { display: block; }
+.focus-kind {
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--focus-accent, var(--accent));
+}
+.focus h3 { margin: 0.25rem 0 0.15rem; font-size: 0.92rem; }
+.focus .focus-sub { color: var(--text-muted); font-size: 0.75rem; margin: 0 0 0.7rem; }
+.focus .focus-detail { font-size: 0.76rem; color: var(--text-muted); margin: 0 0 0.8rem; }
+.focus .focus-doc { font-size: 0.68rem; color: var(--text-faint); margin: 0 0 0.8rem; }
+.focus .focus-rel-title { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 0.4rem; }
+.focus ul { list-style: none; margin: 0 0 0.8rem; padding: 0; }
+.focus ul li { margin-bottom: 0.2rem; }
+.focus ul button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.28rem 0.4rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+.focus ul button:hover { background: var(--toolbar-hover); color: var(--text); }
+.focus .focus-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.focus .focus-actions button {
+  border: 1px solid var(--toolbar-border);
+  background: transparent;
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+.focus .focus-actions button:hover { background: var(--toolbar-hover); color: var(--text); }
+
+/* ---------------------------------------------------------------- finder */
+
+.finder {
+  position: absolute;
+  top: 0.9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  width: min(24rem, calc(100% - 1.8rem));
+  display: none;
+}
+.finder[data-open="true"] { display: block; }
+.finder input {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  box-shadow: var(--shadow);
+}
+.finder input:focus { outline: 2px solid var(--frontend-stroke); outline-offset: 0; }
+.finder-results {
+  margin-top: 0.35rem;
+  max-height: 15rem;
+  overflow: auto;
+  border-radius: 0.5rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+}
+.finder-results:empty { display: none; }
+.finder-results button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+.finder-results button:last-child { border-bottom: 0; }
+.finder-results button:hover { background: var(--toolbar-hover); color: var(--text); }
+.finder-results button small { display: block; color: var(--text-faint); font-size: 0.66rem; }
+
+/* -------------------------------------------------- diagram notes below stage */
+
+.diagram-notes { max-width: 1180px; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
+.diagram-notes .panel { margin-bottom: 1rem; }
+.diagram-notes h2 { margin-bottom: 0.5rem; }
+
+/* ---------------------------------------------------------------- utilities */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Embed (`?embed=1`) drops the chrome so a diagram can be iframed;
+   present (`?present=1`) keeps the toolbar but hides the page furniture. */
+html[data-embed="true"] .toolbar,
+html[data-embed="true"] .site-nav,
+html[data-embed="true"] .diagram-head,
+html[data-embed="true"] .diagram-notes,
+html[data-embed="true"] .legend { display: none !important; }
+html[data-embed="true"] .stage { height: 100vh; border: 0; }
+
+html[data-present="true"] .site-nav,
+html[data-present="true"] .diagram-head,
+html[data-present="true"] .diagram-notes,
+html[data-present="true"] .legend { display: none !important; }
+html[data-present="true"] .stage { height: 100vh; border: 0; }
+
+@media (max-width: 720px) {
+  .overview { padding: 1rem; }
+  body.diagram-page .toolbar { position: static; justify-content: flex-start; padding: 0.75rem 1rem 0; }
+  .diagram-head { padding-top: 1rem; }
+  .stage { height: clamp(360px, 62vh, 560px); }
+  .legend { display: none; }
+  .focus { top: auto; bottom: 0.9rem; left: 0.9rem; right: 0.9rem; width: auto; max-height: 45%; }
+}
+
+@media print {
+  .toolbar, .zoom-bar, .guide, .focus, .finder, .legend { display: none !important; }
+  .stage { height: auto; border: 0; }
+}
+
+</style>
+<style id="diagram-svg-css">
+/* ==========================================================================
+   Diagram SVG — node kinds, edges, regions and the three visual presets.
+
+   Kept in its own file so the page can hand the exact same stylesheet to the
+   SVG/PNG exporter; that is what makes "export" produce the diagram you are
+   looking at rather than an unstyled ghost.
+   ========================================================================== */
+
+svg.diagram { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+svg.diagram text { pointer-events: none; }
+
+/* ---- node bodies ---- */
+.c-frontend { fill: var(--frontend-fill); stroke: var(--frontend-stroke); }
+.c-backend  { fill: var(--backend-fill);  stroke: var(--backend-stroke); }
+.c-database { fill: var(--database-fill); stroke: var(--database-stroke); }
+.c-cloud    { fill: var(--cloud-fill);    stroke: var(--cloud-stroke); }
+.c-security { fill: var(--security-fill); stroke: var(--security-stroke); }
+.c-external { fill: var(--external-fill); stroke: var(--external-stroke); }
+.c-queue    { fill: var(--queue-fill);    stroke: var(--queue-stroke); }
+.c-actor    { fill: var(--actor-fill);    stroke: var(--actor-stroke); }
+.c-storage  { fill: var(--storage-fill);  stroke: var(--storage-stroke); }
+
+/* Opaque plate behind each node so arrow lines passing underneath are hidden. */
+.c-mask { fill: var(--mask); stroke: none; }
+
+.c-region {
+  fill: color-mix(in srgb, var(--cloud-fill) 48%, transparent);
+  stroke: var(--cloud-stroke);
+  stroke-dasharray: 9 4;
+  stroke-width: 1;
+}
+.c-security-group {
+  fill: transparent;
+  stroke: var(--security-stroke);
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+}
+.c-lane {
+  fill: var(--lane-fill);
+  stroke: var(--lane-stroke);
+  stroke-width: 1;
+  stroke-dasharray: 2 6;
+}
+.c-frame-label { fill: var(--text-faint); }
+.c-lane-title { fill: var(--text-faint); letter-spacing: 0.14em; }
+
+/* ---- text ---- */
+.t-primary { fill: var(--text); }
+.t-muted   { fill: var(--text-muted); }
+.t-dim     { fill: var(--text-dim); }
+.t-accent  { fill: var(--arrow-emphasis); }
+.t-security { fill: var(--security-stroke); }
+
+/* ---- edges ---- */
+.a-default  { stroke: var(--arrow); fill: none; }
+.a-emphasis { stroke: var(--arrow-emphasis); fill: none; }
+.a-security { stroke: var(--security-stroke); fill: none; }
+.a-dashed   { stroke: var(--arrow); fill: none; stroke-dasharray: 5 4; }
+.a-return   { stroke: var(--arrow); fill: none; stroke-dasharray: 2 3; }
+
+.a-label-bg { fill: var(--bg); stroke: var(--panel-border); stroke-width: 0.6; }
+.a-label    { fill: var(--text-faint); }
+.a-label-emphasis { fill: var(--arrow-emphasis); }
+.a-label-security { fill: var(--security-stroke); }
+
+.m-default  { fill: var(--arrow); }
+.m-emphasis { fill: var(--arrow-emphasis); }
+.m-security { fill: var(--security-stroke); }
+.m-dashed   { fill: var(--arrow); }
+
+/* ---- sigils ---- */
+.semantic-sigil {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.76;
+  pointer-events: none;
+}
+.semantic-sigil .sigil-fill { fill: currentColor; stroke: none; }
+.s-frontend { color: var(--frontend-stroke); }
+.s-backend  { color: var(--backend-stroke); }
+.s-database { color: var(--database-stroke); }
+.s-cloud    { color: var(--cloud-stroke); }
+.s-security { color: var(--security-stroke); }
+.s-external { color: var(--external-stroke); }
+.s-queue    { color: var(--queue-stroke); }
+.s-actor    { color: var(--actor-stroke); }
+.s-storage  { color: var(--storage-stroke); }
+
+/* ---- motion ---- */
+svg.diagram .a-flow { stroke-dasharray: 4 10; animation: flow-dash 1.4s linear infinite; }
+@keyframes flow-dash { to { stroke-dashoffset: -28; } }
+html[data-motion="still"] svg.diagram .a-flow { animation: none; stroke-dasharray: none; }
+
+/* ---- selection states ---- */
+svg.diagram g[data-node-id],
+svg.diagram path[data-edge-id] { transition: opacity 0.18s ease; }
+svg.diagram .is-dim { opacity: 0.14; }
+svg.diagram .is-faded { opacity: 0.32; }
+svg.diagram g.is-focus > .c-frontend,
+svg.diagram g.is-focus > .c-backend,
+svg.diagram g.is-focus > .c-database,
+svg.diagram g.is-focus > .c-cloud,
+svg.diagram g.is-focus > .c-security,
+svg.diagram g.is-focus > .c-external,
+svg.diagram g.is-focus > .c-queue,
+svg.diagram g.is-focus > .c-actor,
+svg.diagram g.is-focus > .c-storage { stroke-width: 2.6; }
+svg.diagram g.is-focus { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 40%, transparent)); }
+svg.diagram g[data-node-id]:focus-visible > .c-mask { stroke: var(--accent); stroke-width: 2; }
+svg.diagram g[data-node-id]:focus { outline: none; }
+
+/* ==========================================================================
+   PRESETS — classic (default) / blueprint / editorial
+   ========================================================================== */
+
+svg.diagram[data-preset="blueprint"] .c-frontend,
+svg.diagram[data-preset="blueprint"] .c-backend,
+svg.diagram[data-preset="blueprint"] .c-database,
+svg.diagram[data-preset="blueprint"] .c-cloud,
+svg.diagram[data-preset="blueprint"] .c-security,
+svg.diagram[data-preset="blueprint"] .c-external,
+svg.diagram[data-preset="blueprint"] .c-queue,
+svg.diagram[data-preset="blueprint"] .c-actor,
+svg.diagram[data-preset="blueprint"] .c-storage { fill: var(--bg); }
+svg.diagram[data-preset="blueprint"] rect { rx: 0; }
+svg.diagram[data-preset="blueprint"] .c-region { fill: transparent; stroke-dasharray: 3 3; }
+svg.diagram[data-preset="blueprint"] .c-lane { fill: transparent; stroke-dasharray: 1 5; }
+svg.diagram[data-preset="blueprint"] .a-label-bg { fill: var(--bg); }
+
+svg.diagram[data-preset="editorial"] rect { rx: 10; }
+svg.diagram[data-preset="editorial"] .c-frontend,
+svg.diagram[data-preset="editorial"] .c-backend,
+svg.diagram[data-preset="editorial"] .c-database,
+svg.diagram[data-preset="editorial"] .c-cloud,
+svg.diagram[data-preset="editorial"] .c-security,
+svg.diagram[data-preset="editorial"] .c-external,
+svg.diagram[data-preset="editorial"] .c-queue,
+svg.diagram[data-preset="editorial"] .c-actor,
+svg.diagram[data-preset="editorial"] .c-storage { stroke-width: 1; }
+svg.diagram[data-preset="editorial"] .c-region { fill: transparent; stroke-dasharray: none; stroke-width: 1; }
+svg.diagram[data-preset="editorial"] .c-lane { fill: transparent; stroke-dasharray: none; stroke-width: 1; }
+svg.diagram[data-preset="editorial"] .t-primary { letter-spacing: 0.06em; }
+svg.diagram[data-preset="editorial"] .a-label { fill: var(--text-muted); }
+
+</style>
+
+  <style id="estatesync-site-nav-style">
+    .site-nav {
+      position: fixed;
+      top: 1rem;
+      left: 1rem;
+      z-index: 101;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+    }
+    .site-nav a.site-nav-home,
+    .site-nav button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.7rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--toolbar-border);
+      background: var(--toolbar-bg);
+      color: var(--toolbar-text);
+      font: inherit;
+      text-decoration: none;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+    .site-nav a.site-nav-home:hover,
+    .site-nav button:hover { background: var(--toolbar-hover); color: var(--text); }
+    .site-nav-chevron {
+      width: 0; height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 5px solid currentColor;
+      opacity: 0.7;
+    }
+    .site-nav-wrap { position: relative; }
+    .site-nav-menu {
+      position: absolute;
+      top: calc(100% + 0.4rem);
+      left: 0;
+      min-width: 15rem;
+      max-height: min(70vh, 32rem);
+      overflow: auto;
+      padding: 0.3rem;
+      border-radius: 0.6rem;
+      border: 1px solid var(--toolbar-border);
+      background: var(--toolbar-menu-bg);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      display: none;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+    .site-nav-menu[data-open="true"] { display: flex; }
+    .site-nav-menu a {
+      padding: 0.45rem 0.6rem;
+      border-radius: 0.4rem;
+      color: var(--toolbar-text);
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .site-nav-menu a:hover { background: var(--toolbar-hover); color: var(--text); }
+    .site-nav-menu a[aria-current="page"] { color: var(--arrow-emphasis); }
+    @media (max-width: 720px) {
+      .site-nav { position: relative; top: 0; left: 0; margin-bottom: 0.75rem; }
+    }
+    @media print { .site-nav { display: none !important; } }
+    html[data-embed="true"] .site-nav,
+    html[data-present="true"] .site-nav { display: none !important; }
+  </style>
+</head>
+<body class="diagram-page">
+  <!-- Shared site nav (injected by inject-nav.mjs) -->
+  <nav class="site-nav" id="estatesync-site-nav" aria-label="Site">
+    <a class="site-nav-home" href="../index.html">&#8592; Overview</a>
+    <div class="site-nav-wrap">
+      <button type="button" id="site-nav-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="site-nav-menu">
+        <span>Diagrams</span><span class="site-nav-chevron" aria-hidden="true"></span>
+      </button>
+      <div class="site-nav-menu" id="site-nav-menu" role="menu" aria-label="Diagrams">
+        <a href="./system-context.html">System context</a>
+        <a href="./runtime-architecture.html">Runtime architecture</a>
+        <a href="./privileged-path.html">Privileged path</a>
+        <a href="./tenant-isolation.html">Tenant isolation</a>
+        <a href="./trust-boundaries.html">Trust boundaries</a>
+        <a href="./security-edge.html">Cloudflare security edge</a>
+        <a href="./waf-rate-limits.html">WAF & rate limits</a>
+        <a href="./deployment-topology.html">Deployment topology</a>
+        <a href="./zero-trust.html">Zero Trust</a>
+        <a href="./control-chain.html">Control chain</a>
+        <a href="./data-model.html">Data model</a>
+        <a href="./maintenance-lifecycle.html">Maintenance lifecycle</a>
+        <a href="./finance-dataflow.html" aria-current="page">Finance data flow</a>
+        <a href="./ci-gates.html">CI gates</a>
+        <a href="./implementation-checklist.html">Rollout checklist</a>
+        <a href="./plan-coverage.html">Plan coverage (Free → Enterprise)</a>
+        <a href="./edge-coverage-gap.html">Edge coverage gap</a>
+      </div>
+    </div>
+  </nav>
+  <script>
+    (function () {
+      var btn = document.getElementById('site-nav-btn');
+      var menu = document.getElementById('site-nav-menu');
+      if (!btn || !menu) return;
+      function close() { menu.dataset.open = 'false'; btn.setAttribute('aria-expanded', 'false'); }
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var open = menu.dataset.open === 'true';
+        menu.dataset.open = open ? 'false' : 'true';
+        btn.setAttribute('aria-expanded', open ? 'false' : 'true');
+      });
+      document.addEventListener('click', close);
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    })();
+  </script>
+
+<div class="toolbar">
+  <button id="btn-theme" type="button" aria-label="Switch colour theme"><span id="btn-theme-label">Dark</span></button>
+  <button id="btn-preset" type="button" aria-label="Cycle visual preset"><span id="btn-preset-label">Classic</span></button>
+  <button id="btn-motion" type="button" aria-pressed="false" aria-label="Toggle motion"><span id="btn-motion-label">Motion</span></button>
+  <button id="btn-guide" type="button" aria-pressed="false" aria-controls="guide">Guide</button>
+  <button id="btn-finder" type="button" aria-controls="finder">Find</button>
+  <div class="toolbar-wrap">
+    <button id="btn-export" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu">Export</button>
+    <div class="toolbar-menu" id="export-menu" role="menu" aria-label="Export diagram">
+      <button id="export-svg" type="button" role="menuitem">Download SVG</button>
+      <button id="export-png" type="button" role="menuitem">Download PNG</button>
+    </div>
+  </div>
+</div>
+
+<header class="diagram-head" style="--badge-accent: var(--cloud-stroke)">
+  <span class="kind">Data flow</span>
+  <h1>Finance data flow</h1>
+  <p>Two money flows that must stay distinguishable, meeting in one append-oriented ledger.</p>
+</header>
+
+<div class="stage" id="stage">
+<svg id="diagram-svg" class="diagram" data-preset="classic" width="1609" height="434" viewBox="0 0 1609 434" role="img" aria-labelledby="diagram-title diagram-desc" tabindex="0">
+  <title id="diagram-title">EstateSync Master Architecture — Finance data flow</title>
+  <desc id="diagram-desc">Finance and payment data flow: the property rent path from lease and charge through payment and reconciliation, the separate SaaS subscription billing path with its provider webhook, and the append-oriented financial ledger that both end in.</desc>
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" class="m-default"/></marker>
+    <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" class="m-emphasis"/></marker>
+    <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" class="m-security"/></marker>
+    <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" class="m-dashed"/></marker>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" class="c-grid" stroke="var(--grid)" stroke-width="0.5" fill="none"/></pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+  <rect class="c-lane" x="28" y="18" width="231" height="382" rx="12"/>
+  <text class="c-lane-title" x="143.5" y="40" font-size="9" text-anchor="middle">OBLIGATIONS</text>
+  <rect class="c-lane" x="361" y="18" width="231" height="382" rx="12"/>
+  <text class="c-lane-title" x="476.5" y="40" font-size="9" text-anchor="middle">MONEY MOVEMENT</text>
+  <rect class="c-lane" x="694" y="18" width="226" height="382" rx="12"/>
+  <text class="c-lane-title" x="807" y="40" font-size="9" text-anchor="middle">PROVIDERS</text>
+  <rect class="c-lane" x="1022" y="18" width="241" height="382" rx="12"/>
+  <text class="c-lane-title" x="1142.5" y="40" font-size="9" text-anchor="middle">RECORDS &amp; LEDGER</text>
+  <rect class="c-lane" x="1365" y="18" width="216" height="382" rx="12"/>
+  <text class="c-lane-title" x="1473" y="40" font-size="9" text-anchor="middle">REPORTING</text>
+  <rect class="c-security-group" x="698" y="149" width="218" height="168" rx="10"/>
+  <path data-edge-id="lease-invoice" data-edge-from="lease" data-edge-to="invoice" data-edge-label="generates charge" d="M 239 152.5 H 296 V 168.5 H 381" class="a-emphasis a-flow" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-emphasis)"/>
+  <path data-edge-id="rent-methods" data-edge-from="rentobligation" data-edge-to="methods" data-edge-label="pays" d="M 239 337.5 H 310 V 241 H 381" class="a-emphasis a-flow" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-emphasis)"/>
+  <path data-edge-id="subs-charge" data-edge-from="subscription" data-edge-to="billingcharge" data-edge-label="seat state" d="M 239 249 H 324 V 313.5 H 381" class="a-emphasis" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-emphasis)"/>
+  <path data-edge-id="invoice-payment" data-edge-from="invoice" data-edge-to="payment" data-edge-label="settled as" d="M 572 168.5 H 629 V 117.5 H 1042" class="a-emphasis a-flow" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-emphasis)"/>
+  <path data-edge-id="methods-provider" data-edge-from="methods" data-edge-to="provider" data-edge-label="collects" d="M 572 241 H 643 V 192.5 H 714" class="a-default" stroke-width="1.6" fill="none" marker-end="url(#arrowhead)"/>
+  <path data-edge-id="charge-provider" data-edge-from="billingcharge" data-edge-to="provider" data-edge-label="billed by" d="M 572 313.5 H 657 V 206.5 H 714" class="a-default" stroke-width="1.6" fill="none" marker-end="url(#arrowhead)"/>
+  <path data-edge-id="provider-webhook" data-edge-from="provider" data-edge-to="webhook" data-edge-label="async callback" d="M 807 220 L 807 246" class="a-dashed" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-dashed)"/>
+  <path data-edge-id="webhook-payment" data-edge-from="webhook" data-edge-to="payment" data-edge-label="confirmation" d="M 900 274.5 H 971 V 131.5 H 1042" class="a-dashed" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-dashed)"/>
+  <path data-edge-id="webhook-billing" data-edge-from="webhook" data-edge-to="billingevent" data-edge-label="subscription event" d="M 900 274.5 H 985 V 365.5 H 1042" class="a-default" stroke-width="1.6" fill="none" marker-end="url(#arrowhead)"/>
+  <path data-edge-id="payment-recon" data-edge-from="payment" data-edge-to="reconciliation" data-edge-label="matched" d="M 1142.5 153 L 1142.5 179" class="a-emphasis a-flow" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-emphasis)"/>
+  <path data-edge-id="recon-ledger" data-edge-from="reconciliation" data-edge-to="ledger" data-edge-label="posted" d="M 1142.5 236 L 1142.5 262" class="a-emphasis a-flow" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-emphasis)"/>
+  <path data-edge-id="ledger-statements" data-edge-from="ledger" data-edge-to="statements" data-edge-label="reported" d="M 1243 290.5 H 1300 V 202 H 1385" class="a-emphasis" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-emphasis)"/>
+  <path data-edge-id="recon-audit" data-edge-from="reconciliation" data-edge-to="audit" data-edge-label="who, when, what" d="M 1243 207.5 H 1314 V 267.5 H 1385" class="a-dashed" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-dashed)"/>
+  <path data-edge-id="ledger-audit" data-edge-from="ledger" data-edge-to="audit" d="M 1243 290.5 H 1328 V 281.5 H 1385" class="a-dashed" stroke-width="1.6" fill="none" marker-end="url(#arrowhead-dashed)"/>
+  <rect class="a-label-bg" x="253" y="153.5" width="96.4" height="13" rx="3"/>
+  <text class="a-label a-label-emphasis" x="301.2" y="163.5" font-size="8.5" text-anchor="middle">generates charge</text>
+  <rect class="a-label-bg" x="294.2" y="285.75" width="31.6" height="13" rx="3"/>
+  <text class="a-label a-label-emphasis" x="310" y="295.75" font-size="8.5" text-anchor="middle">pays</text>
+  <rect class="a-label-bg" x="292" y="270.75" width="64" height="13" rx="3"/>
+  <text class="a-label a-label-emphasis" x="324" y="280.75" font-size="8.5" text-anchor="middle">seat state</text>
+  <rect class="a-label-bg" x="803.5" y="96.5" width="64" height="13" rx="3"/>
+  <text class="a-label a-label-emphasis" x="835.5" y="106.5" font-size="8.5" text-anchor="middle">settled as</text>
+  <rect class="a-label-bg" x="616.4" y="213.25" width="53.2" height="13" rx="3"/>
+  <text class="a-label" x="643" y="223.25" font-size="8.5" text-anchor="middle">collects</text>
+  <rect class="a-label-bg" x="627.7" y="249.5" width="58.6" height="13" rx="3"/>
+  <text class="a-label" x="657" y="259.5" font-size="8.5" text-anchor="middle">billed by</text>
+  <rect class="a-label-bg" x="764.2" y="226" width="85.6" height="13" rx="3"/>
+  <text class="a-label" x="807" y="236" font-size="8.5" text-anchor="middle">async callback</text>
+  <rect class="a-label-bg" x="933.6" y="192.5" width="74.8" height="13" rx="3"/>
+  <text class="a-label" x="971" y="202.5" font-size="8.5" text-anchor="middle">confirmation</text>
+  <rect class="a-label-bg" x="931.4" y="313" width="107.2" height="13" rx="3"/>
+  <text class="a-label" x="985" y="323" font-size="8.5" text-anchor="middle">subscription event</text>
+  <rect class="a-label-bg" x="1118.6" y="159" width="47.8" height="13" rx="3"/>
+  <text class="a-label a-label-emphasis" x="1142.5" y="169" font-size="8.5" text-anchor="middle">matched</text>
+  <rect class="a-label-bg" x="1121.3" y="242" width="42.4" height="13" rx="3"/>
+  <text class="a-label a-label-emphasis" x="1142.5" y="252" font-size="8.5" text-anchor="middle">posted</text>
+  <rect class="a-label-bg" x="1273.4" y="244.13" width="53.2" height="13" rx="3"/>
+  <text class="a-label a-label-emphasis" x="1300" y="254.13" font-size="8.5" text-anchor="middle">reported</text>
+  <rect class="a-label-bg" x="1268.5" y="229.13" width="91" height="13" rx="3"/>
+  <text class="a-label" x="1314" y="239.13" font-size="8.5" text-anchor="middle">who, when, what</text>
+  <rect class="a-label-bg" x="706" y="157" width="170" height="12" rx="3"/>
+  <text class="c-frame-label" x="710" y="167" font-size="9" letter-spacing="1">Verified, idempotent, recorded</text>
+  <g id="node-lease" data-node-id="lease" data-node-kind="database" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Lease / service, source of charges, Database">
+    <title>Lease / service — source of charges · Database</title>
+    <rect class="c-mask" x="48" y="124" width="191" height="57" rx="6"/>
+    <rect class="c-database" x="48" y="124" width="191" height="57" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-database" transform="translate(56 132) scale(0.7)"><ellipse cx="8" cy="4" rx="6" ry="2.3"/><path d="M2 4v7.8c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3V4"/><path d="M2 8c0 1.3 2.7 2.3 6 2.3S14 9.3 14 8"/></g>
+      <text class="t-primary" x="143.5" y="148" font-size="11" font-weight="600" text-anchor="middle">Lease / service</text>
+      <text class="t-muted" x="143.5" y="176" font-size="9" text-anchor="middle">source of charges</text>
+  </g>
+  <g id="node-subscription" data-node-id="subscription" data-node-kind="cloud" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Organization subscription, plan · trial · seats · usage · renewal, Managed platform">
+    <title>Organization subscription — plan · trial · seats · usage · renewal · Managed platform</title>
+    <rect class="c-mask" x="48" y="207" width="191" height="84" rx="6"/>
+    <rect class="c-cloud" x="48" y="207" width="191" height="84" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-cloud" transform="translate(56 215) scale(0.7)"><path d="M4.4 12.5h7.4a3.1 3.1 0 0 0 .5-6.2 4.2 4.2 0 0 0-8-1.1 2.7 2.7 0 0 0 .1 7.3z"/></g>
+      <text class="t-primary" x="143.5" y="231" font-size="11" font-weight="600" text-anchor="middle">Organization</text>
+      <text class="t-primary" x="143.5" y="246" font-size="11" font-weight="600" text-anchor="middle">subscription</text>
+      <text class="t-muted" x="143.5" y="274" font-size="9" text-anchor="middle">plan · trial · seats · usage ·</text>
+      <text class="t-muted" x="143.5" y="286" font-size="9" text-anchor="middle">renewal</text>
+  </g>
+  <g id="node-rentobligation" data-node-id="rentobligation" data-node-kind="database" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Tenant rent obligation, Database">
+    <title>Tenant rent obligation · Database</title>
+    <rect class="c-mask" x="48" y="317" width="191" height="41" rx="6"/>
+    <rect class="c-database" x="48" y="317" width="191" height="41" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-database" transform="translate(56 325) scale(0.7)"><ellipse cx="8" cy="4" rx="6" ry="2.3"/><path d="M2 4v7.8c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3V4"/><path d="M2 8c0 1.3 2.7 2.3 6 2.3S14 9.3 14 8"/></g>
+      <text class="t-primary" x="143.5" y="341" font-size="11" font-weight="600" text-anchor="middle">Tenant rent obligation</text>
+  </g>
+  <g id="node-invoice" data-node-id="invoice" data-node-kind="backend" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Invoice / charge, Service">
+    <title>Invoice / charge · Service</title>
+    <rect class="c-mask" x="381" y="148" width="191" height="41" rx="6"/>
+    <rect class="c-backend" x="381" y="148" width="191" height="41" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-backend" transform="translate(389 156) scale(0.7)"><rect x="2" y="2.5" width="12" height="5" rx="1.2"/><rect x="2" y="8.5" width="12" height="5" rx="1.2"/><path d="M4.4 5h.01M4.4 11h.01M7 5h4M7 11h4"/></g>
+      <text class="t-primary" x="476.5" y="172" font-size="11" font-weight="600" text-anchor="middle">Invoice / charge</text>
+  </g>
+  <g id="node-methods" data-node-id="methods" data-node-kind="backend" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Card · transfer · link, Service">
+    <title>Card · transfer · link · Service</title>
+    <rect class="c-mask" x="381" y="215" width="191" height="52" rx="6"/>
+    <rect class="c-backend" x="381" y="215" width="191" height="52" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-backend" transform="translate(389 223) scale(0.7)"><rect x="2" y="2.5" width="12" height="5" rx="1.2"/><rect x="2" y="8.5" width="12" height="5" rx="1.2"/><path d="M4.4 5h.01M4.4 11h.01M7 5h4M7 11h4"/></g>
+      <text class="t-primary" x="476.5" y="244.5" font-size="11" font-weight="600" text-anchor="middle">Card · transfer · link</text>
+  </g>
+  <g id="node-billingcharge" data-node-id="billingcharge" data-node-kind="backend" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Subscription charge, Service">
+    <title>Subscription charge · Service</title>
+    <rect class="c-mask" x="381" y="293" width="191" height="41" rx="6"/>
+    <rect class="c-backend" x="381" y="293" width="191" height="41" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-backend" transform="translate(389 301) scale(0.7)"><rect x="2" y="2.5" width="12" height="5" rx="1.2"/><rect x="2" y="8.5" width="12" height="5" rx="1.2"/><path d="M4.4 5h.01M4.4 11h.01M7 5h4M7 11h4"/></g>
+      <text class="t-primary" x="476.5" y="317" font-size="11" font-weight="600" text-anchor="middle">Subscription charge</text>
+  </g>
+  <g id="node-provider" data-node-id="provider" data-node-kind="external" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Payment provider, External service">
+    <title>Payment provider · External service</title>
+    <rect class="c-mask" x="714" y="179" width="186" height="41" rx="6"/>
+    <rect class="c-external" x="714" y="179" width="186" height="41" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-external" transform="translate(722 187) scale(0.7)"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><path d="M8 2c2.3 2.1 2.3 9.9 0 12M8 2C5.7 4.1 5.7 11.9 8 14"/></g>
+      <text class="t-primary" x="807" y="203" font-size="11" font-weight="600" text-anchor="middle">Payment provider</text>
+  </g>
+  <g id="node-webhook" data-node-id="webhook" data-node-kind="security" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Inbound webhook, verified · idempotent, Trust boundary">
+    <title>Inbound webhook — verified · idempotent · Trust boundary</title>
+    <rect class="c-mask" x="714" y="246" width="186" height="57" rx="6"/>
+    <rect class="c-security" x="714" y="246" width="186" height="57" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-security" transform="translate(722 254) scale(0.7)"><path d="M8 2l5 2v5c0 3-2.2 4.7-5 5.4C5.2 13.7 3 12 3 9V4z"/><path d="M6 8.2l1.5 1.5L10.3 7"/></g>
+      <text class="t-primary" x="807" y="270" font-size="11" font-weight="600" text-anchor="middle">Inbound webhook</text>
+      <text class="t-muted" x="807" y="298" font-size="9" text-anchor="middle">verified · idempotent</text>
+  </g>
+  <g id="node-payment" data-node-id="payment" data-node-kind="backend" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Payment record, source transaction id kept, Service">
+    <title>Payment record — source transaction id kept · Service</title>
+    <rect class="c-mask" x="1042" y="96" width="201" height="57" rx="6"/>
+    <rect class="c-backend" x="1042" y="96" width="201" height="57" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-backend" transform="translate(1050 104) scale(0.7)"><rect x="2" y="2.5" width="12" height="5" rx="1.2"/><rect x="2" y="8.5" width="12" height="5" rx="1.2"/><path d="M4.4 5h.01M4.4 11h.01M7 5h4M7 11h4"/></g>
+      <text class="t-primary" x="1142.5" y="120" font-size="11" font-weight="600" text-anchor="middle">Payment record</text>
+      <text class="t-muted" x="1142.5" y="148" font-size="9" text-anchor="middle">source transaction id kept</text>
+  </g>
+  <g id="node-reconciliation" data-node-id="reconciliation" data-node-kind="database" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Reconciliation, explicit state · named actor, Database">
+    <title>Reconciliation — explicit state · named actor · Database</title>
+    <rect class="c-mask" x="1042" y="179" width="201" height="57" rx="6"/>
+    <rect class="c-database" x="1042" y="179" width="201" height="57" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-database" transform="translate(1050 187) scale(0.7)"><ellipse cx="8" cy="4" rx="6" ry="2.3"/><path d="M2 4v7.8c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3V4"/><path d="M2 8c0 1.3 2.7 2.3 6 2.3S14 9.3 14 8"/></g>
+      <text class="t-primary" x="1142.5" y="203" font-size="11" font-weight="600" text-anchor="middle">Reconciliation</text>
+      <text class="t-muted" x="1142.5" y="231" font-size="9" text-anchor="middle">explicit state · named actor</text>
+  </g>
+  <g id="node-ledger" data-node-id="ledger" data-node-kind="database" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Financial ledger, append-oriented, Database">
+    <title>Financial ledger — append-oriented · Database</title>
+    <rect class="c-mask" x="1042" y="262" width="201" height="57" rx="6"/>
+    <rect class="c-database" x="1042" y="262" width="201" height="57" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-database" transform="translate(1050 270) scale(0.7)"><ellipse cx="8" cy="4" rx="6" ry="2.3"/><path d="M2 4v7.8c0 1.3 2.7 2.3 6 2.3s6-1 6-2.3V4"/><path d="M2 8c0 1.3 2.7 2.3 6 2.3S14 9.3 14 8"/></g>
+      <text class="t-primary" x="1142.5" y="286" font-size="11" font-weight="600" text-anchor="middle">Financial ledger</text>
+      <text class="t-muted" x="1142.5" y="314" font-size="9" text-anchor="middle">append-oriented</text>
+  </g>
+  <g id="node-billingevent" data-node-id="billingevent" data-node-kind="cloud" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Billing event, Managed platform">
+    <title>Billing event · Managed platform</title>
+    <rect class="c-mask" x="1042" y="345" width="201" height="41" rx="6"/>
+    <rect class="c-cloud" x="1042" y="345" width="201" height="41" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-cloud" transform="translate(1050 353) scale(0.7)"><path d="M4.4 12.5h7.4a3.1 3.1 0 0 0 .5-6.2 4.2 4.2 0 0 0-8-1.1 2.7 2.7 0 0 0 .1 7.3z"/></g>
+      <text class="t-primary" x="1142.5" y="369" font-size="11" font-weight="600" text-anchor="middle">Billing event</text>
+  </g>
+  <g id="node-statements" data-node-id="statements" data-node-kind="external" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Statements / reports, External service">
+    <title>Statements / reports · External service</title>
+    <rect class="c-mask" x="1385" y="181.5" width="176" height="41" rx="6"/>
+    <rect class="c-external" x="1385" y="181.5" width="176" height="41" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-external" transform="translate(1393 189.5) scale(0.7)"><circle cx="8" cy="8" r="6"/><path d="M2 8h12"/><path d="M8 2c2.3 2.1 2.3 9.9 0 12M8 2C5.7 4.1 5.7 11.9 8 14"/></g>
+      <text class="t-primary" x="1473" y="205.5" font-size="11" font-weight="600" text-anchor="middle">Statements / reports</text>
+  </g>
+  <g id="node-audit" data-node-id="audit" data-node-kind="security" tabindex="0" role="button" aria-pressed="false" aria-label="Focus Immutable audit evidence, material financial changes, Trust boundary">
+    <title>Immutable audit evidence — material financial changes · Trust boundary</title>
+    <rect class="c-mask" x="1385" y="248.5" width="176" height="52" rx="6"/>
+    <rect class="c-security" x="1385" y="248.5" width="176" height="52" rx="6" stroke-width="1.5"/>
+    <g aria-hidden="true" class="semantic-sigil s-security" transform="translate(1393 256.5) scale(0.7)"><path d="M8 2l5 2v5c0 3-2.2 4.7-5 5.4C5.2 13.7 3 12 3 9V4z"/><path d="M6 8.2l1.5 1.5L10.3 7"/></g>
+      <text class="t-primary" x="1473" y="262.5" font-size="11" font-weight="600" text-anchor="middle">Immutable audit</text>
+      <text class="t-primary" x="1473" y="277.5" font-size="11" font-weight="600" text-anchor="middle">evidence</text>
+      <text class="t-muted" x="1473" y="305.5" font-size="9" text-anchor="middle">material financial changes</text>
+  </g>
+</svg>
+
+  <div class="finder" id="finder" data-open="false">
+    <input id="finder-input" type="search" placeholder="Find a node…" aria-label="Find a node" autocomplete="off">
+    <div class="finder-results" id="finder-results"></div>
+  </div>
+
+  <div class="guide" id="guide" data-open="false" role="region" aria-label="Guided views">
+    <h2>Guided views</h2>
+    <p class="guide-title" id="guide-title">Whole diagram</p>
+    <p class="guide-caption" id="guide-caption">Every lane, every node and every edge.</p>
+    <div class="guide-actions">
+      <button id="guide-prev" type="button" aria-label="Previous guided view">&#8592; Prev</button>
+      <button id="guide-next" type="button" aria-label="Next guided view">Next &#8594;</button>
+      <button id="guide-all" type="button">Show all</button>
+      <button id="guide-close" type="button">Close</button>
+    </div>
+    <ol class="guide-chapters" id="guide-chapters"></ol>
+  </div>
+
+  <div class="focus" id="focus" data-open="false" role="region" aria-label="Focused node">
+    <span class="focus-kind" id="focus-kind"></span>
+    <h3 id="focus-label"></h3>
+    <p class="focus-sub" id="focus-sub"></p>
+    <p class="focus-detail" id="focus-detail"></p>
+    <p class="focus-doc" id="focus-doc"></p>
+    <p class="focus-rel-title">Relationships</p>
+    <ul id="focus-list"></ul>
+    <div class="focus-actions">
+      <button id="focus-clear" type="button">Clear focus</button>
+    </div>
+  </div>
+
+  <div class="zoom-bar">
+    <button id="zoom-out" type="button" aria-label="Zoom out">&#8722;</button>
+    <span class="zoom-level" id="zoom-level">100%</span>
+    <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+    <button id="zoom-fit" type="button" aria-label="Fit diagram">Fit</button>
+  </div>
+
+  <div class="legend">
+      <span><i style="background: var(--database-fill); border-color: var(--database-stroke)"></i>Database</span>
+      <span><i style="background: var(--cloud-fill); border-color: var(--cloud-stroke)"></i>Managed platform</span>
+      <span><i style="background: var(--backend-fill); border-color: var(--backend-stroke)"></i>Service</span>
+      <span><i style="background: var(--external-fill); border-color: var(--external-stroke)"></i>External service</span>
+      <span><i style="background: var(--security-fill); border-color: var(--security-stroke)"></i>Trust boundary</span>
+  </div>
+</div>
+
+<section class="diagram-notes">
+    <div class="panel">
+      <p><strong>Financial controls.</strong> Posted ledger entries are never silently overwritten; source transaction identifiers are preserved; reconciliation state is explicit; whoever performed a manual reconciliation is recorded; material financial changes keep immutable audit evidence.</p>
+      <ol><li>no silent overwrite of posted entries</li><li>preserve source transaction identifiers</li><li>make reconciliation state explicit</li><li>record who performed manual reconciliation</li><li>keep immutable audit evidence for material changes</li><li>keep platform billing separate from landlord / tenant money</li></ol>
+    </div>
+    <div class="panel callout">
+      <span class="callout-tag">Two flows, one ledger shape</span><p>Property rent and platform subscription billing both end in financial records, but they are different flows with different counterparties. Merging them early makes revenue reporting ambiguous later.</p>
+    </div>
+    <div class="panel">
+      <p><strong>Using this diagram.</strong> Drag to pan, scroll to zoom, click any node for its source reference, press <code>G</code> for guided views, <code>/</code> to find a node, <code>T</code> to switch theme, <code>P</code> to cycle the visual preset, and <code>F</code> to fit. Exports are generated from the same stylesheet you are looking at.</p>
+    </div>
+</section>
+
+<script type="application/json" id="diagram-data">
+{"slug":"finance-dataflow","width":1609,"height":434,"vars":["--bg","--grid","--text","--text-muted","--text-dim","--text-faint","--panel","--panel-border","--panel-hover","--lane-fill","--lane-stroke","--arrow","--arrow-emphasis","--mask","--frontend-fill","--frontend-stroke","--backend-fill","--backend-stroke","--database-fill","--database-stroke","--cloud-fill","--cloud-stroke","--security-fill","--security-stroke","--external-fill","--external-stroke","--queue-fill","--queue-stroke","--actor-fill","--actor-stroke","--storage-fill","--storage-stroke","--accent"],"nodes":[{"id":"lease","label":"Lease / service","sublabel":"source of charges","kind":"database","detail":"","doc":"06-finance-payments.md","x":48,"y":124,"w":191,"h":57},{"id":"subscription","label":"Organization subscription","sublabel":"plan · trial · seats · usage · renewal","kind":"cloud","detail":"Platform billing is a different money flow from landlord and tenant funds. Keeping them in separate records is what stops subscription revenue and rent from contaminating each other in reporting.","doc":"06-finance-payments.md","x":48,"y":207,"w":191,"h":84},{"id":"rentobligation","label":"Tenant rent obligation","sublabel":"","kind":"database","detail":"","doc":"06-finance-payments.md","x":48,"y":317,"w":191,"h":41},{"id":"invoice","label":"Invoice / charge","sublabel":"","kind":"backend","detail":"","doc":"06-finance-payments.md","x":381,"y":148,"w":191,"h":41},{"id":"methods","label":"Card · transfer · link","sublabel":"","kind":"backend","detail":"","doc":"06-finance-payments.md","x":381,"y":215,"w":191,"h":52},{"id":"billingcharge","label":"Subscription charge","sublabel":"","kind":"backend","detail":"","doc":"06-finance-payments.md","x":381,"y":293,"w":191,"h":41},{"id":"provider","label":"Payment provider","sublabel":"","kind":"external","detail":"","doc":"06-finance-payments.md","x":714,"y":179,"w":186,"h":41},{"id":"webhook","label":"Inbound webhook","sublabel":"verified · idempotent","kind":"security","detail":"Verify authenticity, validate the payload, identify the organization safely, enforce idempotency, record the event, process asynchronously, return quickly.","doc":"07-api-integrations.md","x":714,"y":246,"w":186,"h":57},{"id":"payment","label":"Payment record","sublabel":"source transaction id kept","kind":"backend","detail":"","doc":"06-finance-payments.md","x":1042,"y":96,"w":201,"h":57},{"id":"reconciliation","label":"Reconciliation","sublabel":"explicit state · named actor","kind":"database","detail":"Reconciliation state is explicit and the person who performed a manual reconciliation is recorded.","doc":"06-finance-payments.md","x":1042,"y":179,"w":201,"h":57},{"id":"ledger","label":"Financial ledger","sublabel":"append-oriented","kind":"database","detail":"","doc":"06-finance-payments.md","x":1042,"y":262,"w":201,"h":57},{"id":"billingevent","label":"Billing event","sublabel":"","kind":"cloud","detail":"","doc":"06-finance-payments.md","x":1042,"y":345,"w":201,"h":41},{"id":"statements","label":"Statements / reports","sublabel":"","kind":"external","detail":"","doc":"06-finance-payments.md","x":1385,"y":181.5,"w":176,"h":41},{"id":"audit","label":"Immutable audit evidence","sublabel":"material financial changes","kind":"security","detail":"","doc":"10-dr-operations.md","x":1385,"y":248.5,"w":176,"h":52}],"edges":[{"id":"lease-invoice","from":"lease","to":"invoice","label":"generates charge"},{"id":"rent-methods","from":"rentobligation","to":"methods","label":"pays"},{"id":"subs-charge","from":"subscription","to":"billingcharge","label":"seat state"},{"id":"invoice-payment","from":"invoice","to":"payment","label":"settled as"},{"id":"methods-provider","from":"methods","to":"provider","label":"collects"},{"id":"charge-provider","from":"billingcharge","to":"provider","label":"billed by"},{"id":"provider-webhook","from":"provider","to":"webhook","label":"async callback"},{"id":"webhook-payment","from":"webhook","to":"payment","label":"confirmation"},{"id":"webhook-billing","from":"webhook","to":"billingevent","label":"subscription event"},{"id":"payment-recon","from":"payment","to":"reconciliation","label":"matched"},{"id":"recon-ledger","from":"reconciliation","to":"ledger","label":"posted"},{"id":"ledger-statements","from":"ledger","to":"statements","label":"reported"},{"id":"recon-audit","from":"reconciliation","to":"audit","label":"who, when, what"},{"id":"ledger-audit","from":"ledger","to":"audit","label":""}],"views":[{"id":"rent","title":"Rent and payment flow","caption":"Tenant funds: obligation to method, provider, confirmed payment, reconciliation and ledger.","nodes":["lease","rentobligation","invoice","methods","provider","webhook","payment","reconciliation","ledger"],"edges":["lease-invoice","rent-methods","invoice-payment","methods-provider","provider-webhook","webhook-payment","payment-recon","recon-ledger"]},{"id":"saas","title":"Subscription billing","caption":"Platform revenue is a separate flow: plan state billed by a provider, recorded as a billing event — never mixed into rent.","nodes":["subscription","billingcharge","provider","webhook","billingevent"],"edges":["subs-charge","charge-provider","provider-webhook","webhook-billing"]},{"id":"controls","title":"Ledger controls","caption":"Posted entries are not silently overwritten, reconciliation state is explicit, and material changes leave immutable evidence.","nodes":["payment","reconciliation","ledger","statements","audit"],"edges":["payment-recon","recon-ledger","ledger-statements","recon-audit","ledger-audit"]}]}
+</script>
+<script>
+/* ==========================================================================
+   Diagram runtime — pan/zoom, theme + preset switching, guided views,
+   node focus, search and SVG/PNG export.
+
+   Contract with the generated page:
+     #diagram-data   <script type="application/json"> with
+                     { slug, width, height, vars[], nodes[], edges[], views[] }
+     #diagram-svg    the inline <svg class="diagram">
+     #diagram-svg-css  the stylesheet handed to the exporter
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  var dataEl = document.getElementById('diagram-data');
+  if (!dataEl) return;
+  var data = JSON.parse(dataEl.textContent);
+
+  var stage = document.getElementById('stage');
+  var svg = document.getElementById('diagram-svg');
+  var W = data.width;
+  var H = data.height;
+
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', H);
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+
+  /* ------------------------------------------------------------ theme */
+
+  var root = document.documentElement;
+
+  function prefersLight() {
+    return window.matchMedia('(prefers-color-scheme: light)').matches;
+  }
+
+  function readTheme() {
+    var param = null;
+    try { param = new URLSearchParams(location.search).get('theme'); } catch (_) {}
+    if (param === 'light' || param === 'dark') return param;
+    var stored = null;
+    try { stored = localStorage.getItem('archify-theme'); } catch (_) {}
+    if (stored === 'light' || stored === 'dark') return stored;
+    return prefersLight() ? 'light' : 'dark';
+  }
+
+  var theme = readTheme();
+  root.setAttribute('data-theme', theme);
+  var themeBtn = document.getElementById('btn-theme');
+  var themeLabel = document.getElementById('btn-theme-label');
+
+  function syncThemeButton() {
+    if (themeLabel) themeLabel.textContent = theme === 'light' ? 'Light' : 'Dark';
+    if (themeBtn) themeBtn.setAttribute('aria-label', 'Switch to ' + (theme === 'light' ? 'dark' : 'light') + ' theme');
+  }
+  syncThemeButton();
+
+  if (themeBtn) {
+    themeBtn.addEventListener('click', function () {
+      theme = theme === 'light' ? 'dark' : 'light';
+      root.setAttribute('data-theme', theme);
+      try { localStorage.setItem('archify-theme', theme); } catch (_) {}
+      syncThemeButton();
+    });
+  }
+
+  /* ------------------------------------------------------------ presets */
+
+  var PRESETS = ['classic', 'blueprint', 'editorial'];
+  var preset = 'classic';
+  try { preset = localStorage.getItem('estatesync-preset') || 'classic'; } catch (_) {}
+  if (PRESETS.indexOf(preset) === -1) preset = 'classic';
+
+  var presetBtn = document.getElementById('btn-preset');
+  var presetLabel = document.getElementById('btn-preset-label');
+
+  function syncPreset() {
+    svg.setAttribute('data-preset', preset);
+    if (presetLabel) presetLabel.textContent = preset.charAt(0).toUpperCase() + preset.slice(1);
+  }
+  syncPreset();
+
+  if (presetBtn) {
+    presetBtn.addEventListener('click', function () {
+      preset = PRESETS[(PRESETS.indexOf(preset) + 1) % PRESETS.length];
+      syncPreset();
+      try { localStorage.setItem('estatesync-preset', preset); } catch (_) {}
+    });
+  }
+
+  /* ------------------------------------------------------------ motion */
+
+  var motionBtn = document.getElementById('btn-motion');
+  var motionLabel = document.getElementById('btn-motion-label');
+  var motion = 'on';
+  try { motion = localStorage.getItem('estatesync-motion') || 'on'; } catch (_) {}
+
+  function syncMotion() {
+    root.setAttribute('data-motion', motion === 'still' ? 'still' : 'live');
+    if (motionLabel) motionLabel.textContent = motion === 'still' ? 'Still' : 'Motion';
+    if (motionBtn) motionBtn.setAttribute('aria-pressed', motion === 'still' ? 'true' : 'false');
+  }
+  syncMotion();
+
+  if (motionBtn) {
+    motionBtn.addEventListener('click', function () {
+      motion = motion === 'still' ? 'on' : 'still';
+      syncMotion();
+      try { localStorage.setItem('estatesync-motion', motion); } catch (_) {}
+    });
+  }
+
+  /* ------------------------------------------------------------ camera */
+
+  var cam = { s: 1, x: 0, y: 0 };
+
+  function applyCam() {
+    svg.style.transform = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.s + ')';
+    var level = document.getElementById('zoom-level');
+    if (level) level.textContent = Math.round(cam.s * 100) + '%';
+  }
+
+  function animate(on) {
+    stage.classList.toggle('is-animating', !!on);
+    if (on) {
+      window.setTimeout(function () { stage.classList.remove('is-animating'); }, 360);
+    }
+  }
+
+  function clampScale(s) {
+    return Math.max(0.18, Math.min(2.2, s));
+  }
+
+  function fit(animateIt) {
+    var r = stage.getBoundingClientRect();
+    var pad = 26;
+    var s = clampScale(Math.min((r.width - pad * 2) / W, (r.height - pad * 2) / H));
+    cam.s = s;
+    cam.x = (r.width - W * s) / 2;
+    cam.y = (r.height - H * s) / 2;
+    animate(animateIt);
+    applyCam();
+  }
+
+  // Zoom the camera to a rectangle expressed in SVG coordinates.
+  function fitBox(box, animateIt, maxScale) {
+    if (!box || !box.w || !box.h) { fit(animateIt); return; }
+    var r = stage.getBoundingClientRect();
+    var pad = 40;
+    var s = clampScale(Math.min((r.width - pad * 2) / box.w, (r.height - pad * 2) / box.h));
+    s = Math.min(s, maxScale || 1.5);
+    cam.s = s;
+    cam.x = r.width / 2 - (box.x + box.w / 2) * s;
+    cam.y = r.height / 2 - (box.y + box.h / 2) * s;
+    animate(animateIt);
+    applyCam();
+  }
+
+  function zoomBy(factor, cx, cy) {
+    var r = stage.getBoundingClientRect();
+    var mx = cx == null ? r.width / 2 : cx;
+    var my = cy == null ? r.height / 2 : cy;
+    var px = (mx - cam.x) / cam.s;
+    var py = (my - cam.y) / cam.s;
+    var next = clampScale(cam.s * factor);
+    if (next === cam.s) return;
+    cam.s = next;
+    cam.x = mx - px * cam.s;
+    cam.y = my - py * cam.s;
+    applyCam();
+  }
+
+  /* ------------------------------------------------------- pan + wheel */
+
+  var dragging = null;
+
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    if (e.target.closest('.guide, .focus, .finder, .zoom-bar, .legend, button, a')) return;
+    dragging = { id: e.pointerId, x: e.clientX, y: e.clientY, sx: cam.x, sy: cam.y, moved: false };
+    try { stage.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+
+  stage.addEventListener('pointermove', function (e) {
+    if (!dragging || dragging.id !== e.pointerId) return;
+    // A small dead zone keeps a click on a node from nudging the camera.
+    if (!dragging.moved) {
+      if (Math.abs(e.clientX - dragging.x) < 4 && Math.abs(e.clientY - dragging.y) < 4) return;
+      dragging.moved = true;
+      stage.classList.add('is-panning');
+    }
+    cam.x = dragging.sx + (e.clientX - dragging.x);
+    cam.y = dragging.sy + (e.clientY - dragging.y);
+    applyCam();
+  });
+
+  function endDrag(e) {
+    if (!dragging || (e && dragging.id !== e.pointerId)) return;
+    dragging = null;
+    stage.classList.remove('is-panning');
+  }
+  stage.addEventListener('pointerup', endDrag);
+  stage.addEventListener('pointercancel', endDrag);
+
+  stage.addEventListener('wheel', function (e) {
+    if (e.target.closest('.guide, .focus, .finder')) return;
+    e.preventDefault();
+    var r = stage.getBoundingClientRect();
+    var factor = Math.exp(-e.deltaY * 0.0015);
+    zoomBy(factor, e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+
+  var zoomIn = document.getElementById('zoom-in');
+  var zoomOut = document.getElementById('zoom-out');
+  var zoomFit = document.getElementById('zoom-fit');
+  if (zoomIn) zoomIn.addEventListener('click', function () { zoomBy(1.25); });
+  if (zoomOut) zoomOut.addEventListener('click', function () { zoomBy(1 / 1.25); });
+  if (zoomFit) zoomFit.addEventListener('click', function () { clearFocus(); setView(-1, true); fit(true); });
+
+  /* --------------------------------------------------- node/edge index */
+
+  var nodeEls = {};
+  var edgeEls = {};
+  var nodeMeta = {};
+  var nodes = data.nodes || [];
+  var edges = data.edges || [];
+
+  Array.prototype.forEach.call(svg.querySelectorAll('[data-node-id]'), function (el) {
+    nodeEls[el.getAttribute('data-node-id')] = el;
+  });
+  Array.prototype.forEach.call(svg.querySelectorAll('[data-edge-id]'), function (el) {
+    edgeEls[el.getAttribute('data-edge-id')] = el;
+  });
+  nodes.forEach(function (n) { nodeMeta[n.id] = n; });
+
+  // Adjacency, used by the focus panel and its relationship lists.
+  var outgoing = {};
+  var incoming = {};
+  edges.forEach(function (e) {
+    (outgoing[e.from] = outgoing[e.from] || []).push(e);
+    (incoming[e.to] = incoming[e.to] || []).push(e);
+  });
+
+  function relatedNodeIds(id) {
+    var ids = {};
+    (outgoing[id] || []).forEach(function (e) { ids[e.to] = true; });
+    (incoming[id] || []).forEach(function (e) { ids[e.from] = true; });
+    return ids;
+  }
+
+  function paint() {
+    var focus = focusId;
+    var view = currentView();
+    var viewNodes = view ? (view.nodes || []) : null;
+    var viewEdges = view ? (view.edges || null) : null;
+    var related = focus ? relatedNodeIds(focus) : null;
+
+    Object.keys(nodeEls).forEach(function (id) {
+      var el = nodeEls[id];
+      el.classList.remove('is-focus', 'is-faded', 'is-dim');
+      el.setAttribute('aria-pressed', focus === id ? 'true' : 'false');
+      if (focus) {
+        if (id === focus) el.classList.add('is-focus');
+        else if (!related[id]) el.classList.add('is-faded');
+      } else if (viewNodes && viewNodes.indexOf(id) === -1) {
+        el.classList.add('is-dim');
+      }
+    });
+
+    Object.keys(edgeEls).forEach(function (id) {
+      var el = edgeEls[id];
+      el.classList.remove('is-faded', 'is-dim');
+      var e = edgeIndex[id];
+      if (focus) {
+        var touches = e && (e.from === focus || e.to === focus);
+        if (!touches) el.classList.add('is-faded');
+      } else if (viewNodes) {
+        var inView = viewEdges
+          ? viewEdges.indexOf(id) !== -1
+          : !!(e && viewNodes.indexOf(e.from) !== -1 && viewNodes.indexOf(e.to) !== -1);
+        if (!inView) el.classList.add('is-dim');
+      }
+    });
+  }
+
+  var edgeIndex = {};
+  edges.forEach(function (e) { edgeIndex[e.id] = e; });
+
+  /* ------------------------------------------------------------ views */
+
+  var views = data.views || [];
+  var viewIndex = -1;
+
+  function currentView() {
+    return viewIndex >= 0 && views[viewIndex] ? views[viewIndex] : null;
+  }
+
+  function viewBox(view) {
+    var ids = view.nodes || [];
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach(function (id) {
+      var n = nodeMeta[id];
+      if (!n) return;
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.w);
+      maxY = Math.max(maxY, n.y + n.h);
+    });
+    if (!isFinite(minX)) return null;
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+
+  var guide = document.getElementById('guide');
+  var guideTitle = document.getElementById('guide-title');
+  var guideCaption = document.getElementById('guide-caption');
+  var guideChapters = document.getElementById('guide-chapters');
+  var guidePrev = document.getElementById('guide-prev');
+  var guideNext = document.getElementById('guide-next');
+  var guideAll = document.getElementById('guide-all');
+  var guideClose = document.getElementById('guide-close');
+  var guideBtn = document.getElementById('btn-guide');
+
+  function syncGuide() {
+    var view = currentView();
+    if (guideTitle) guideTitle.textContent = view ? view.title : 'Whole diagram';
+    if (guideCaption) guideCaption.textContent = view ? view.caption : 'Every lane, every node and every edge.';
+    if (guideChapters) {
+      Array.prototype.forEach.call(guideChapters.querySelectorAll('button'), function (b, i) {
+        b.setAttribute('aria-current', i === viewIndex ? 'true' : 'false');
+      });
+    }
+    if (guidePrev) guidePrev.disabled = views.length === 0;
+    if (guideNext) guideNext.disabled = views.length === 0;
+  }
+
+  function setView(i, animateIt, fromHash) {
+    viewIndex = i;
+    if (i >= 0 && views[i]) {
+      clearFocus(true);
+      fitBox(viewBox(views[i]), animateIt, 1.35);
+    }
+    paint();
+    syncGuide();
+    if (!fromHash) updateHash();
+  }
+
+  if (views.length && guideChapters) {
+    views.forEach(function (view, i) {
+      var li = document.createElement('li');
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = view.title;
+      b.addEventListener('click', function () { setView(i, true); });
+      li.appendChild(b);
+      guideChapters.appendChild(li);
+    });
+  }
+
+  if (guidePrev) guidePrev.addEventListener('click', function () {
+    setView(viewIndex <= 0 ? views.length - 1 : viewIndex - 1, true);
+  });
+  if (guideNext) guideNext.addEventListener('click', function () {
+    setView(viewIndex === -1 ? 0 : (viewIndex + 1) % views.length, true);
+  });
+  if (guideAll) guideAll.addEventListener('click', function () { setView(-1, true); fit(true); });
+  if (guideClose) guideClose.addEventListener('click', function () { guide.dataset.open = 'false'; });
+
+  function toggleGuide() {
+    if (!guide) return;
+    var open = guide.dataset.open === 'true';
+    guide.dataset.open = open ? 'false' : 'true';
+    if (guideBtn) guideBtn.setAttribute('aria-pressed', open ? 'false' : 'true');
+  }
+  if (guideBtn) {
+    guideBtn.addEventListener('click', toggleGuide);
+    if (!views.length) guideBtn.hidden = true;
+  }
+
+  /* ------------------------------------------------------- node focus */
+
+  var focusId = null;
+  var focus = document.getElementById('focus');
+  var focusKind = document.getElementById('focus-kind');
+  var focusLabel = document.getElementById('focus-label');
+  var focusSub = document.getElementById('focus-sub');
+  var focusDetail = document.getElementById('focus-detail');
+  var focusDoc = document.getElementById('focus-doc');
+  var focusList = document.getElementById('focus-list');
+
+  var KIND_LABEL = {
+    actor: 'Actor', frontend: 'Client', backend: 'Service', database: 'Database',
+    cloud: 'Managed platform', security: 'Trust boundary', external: 'External service',
+    queue: 'Async boundary', storage: 'Storage'
+  };
+
+  function focusNode(id) {
+    var meta = nodeMeta[id];
+    if (!meta) return;
+    focusId = id;
+    if (focusKind) focusKind.textContent = KIND_LABEL[meta.kind] || meta.kind;
+    if (focusLabel) focusLabel.textContent = meta.label;
+    if (focusSub) {
+      focusSub.textContent = meta.sublabel || '';
+      focusSub.hidden = !meta.sublabel;
+    }
+    if (focusDetail) {
+      focusDetail.textContent = meta.detail || '';
+      focusDetail.hidden = !meta.detail;
+    }
+    if (focusDoc) {
+      focusDoc.textContent = meta.doc ? 'Source: ' + meta.doc : '';
+      focusDoc.hidden = !meta.doc;
+    }
+    if (focus) {
+      focus.dataset.open = 'true';
+      focus.style.setProperty('--focus-accent', 'var(--' + (meta.kind || 'external') + '-stroke)');
+    }
+    if (focusList) {
+      focusList.innerHTML = '';
+      var rel = [];
+      (incoming[id] || []).forEach(function (e) {
+        var from = nodeMeta[e.from] ? nodeMeta[e.from].label : e.from;
+        rel.push({ id: e.from, label: '\u2190 ' + from + (e.label ? ' \u00b7 ' + e.label : '') });
+      });
+      (outgoing[id] || []).forEach(function (e) {
+        rel.push({ id: e.to, label: '\u2192 ' + (nodeMeta[e.to] ? nodeMeta[e.to].label : e.to) + (e.label ? ' \u00b7 ' + e.label : '') });
+      });
+      if (!rel.length) {
+        var p = document.createElement('li');
+        p.textContent = 'No edges \u2014 context only.';
+        p.style.color = 'var(--text-faint)';
+        p.style.fontSize = '0.72rem';
+        focusList.appendChild(p);
+      }
+      rel.forEach(function (r) {
+        var li = document.createElement('li');
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = r.label;
+        b.addEventListener('click', function () { focusNode(r.id); });
+        li.appendChild(b);
+        focusList.appendChild(li);
+      });
+    }
+    paint();
+    var box = { x: meta.x - 40, y: meta.y - 40, w: meta.w + 80, h: meta.h + 80 };
+    fitBox(box, true, 1.6);
+    updateHash();
+  }
+
+  function clearFocus(silent) {
+    if (!focusId) return;
+    focusId = null;
+    if (focus) focus.dataset.open = 'false';
+    paint();
+    if (!silent) updateHash();
+  }
+
+  var focusClear = document.getElementById('focus-clear');
+  if (focusClear) focusClear.addEventListener('click', function () { clearFocus(); });
+
+  svg.addEventListener('click', function (e) {
+    var g = e.target.closest('[data-node-id]');
+    if (!g) return;
+    var id = g.getAttribute('data-node-id');
+    if (id === focusId) clearFocus();
+    else focusNode(id);
+  });
+
+  svg.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var g = e.target.closest('[data-node-id]');
+    if (!g) return;
+    e.preventDefault();
+    var id = g.getAttribute('data-node-id');
+    if (id === focusId) clearFocus();
+    else focusNode(id);
+  });
+
+  /* ---------------------------------------------------------- finder */
+
+  var finder = document.getElementById('finder');
+  var finderInput = document.getElementById('finder-input');
+  var finderResults = document.getElementById('finder-results');
+  var finderBtn = document.getElementById('btn-finder');
+
+  function renderResults(q) {
+    if (!finderResults) return;
+    finderResults.innerHTML = '';
+    var needle = q.trim().toLowerCase();
+    if (!needle) return;
+    nodes.filter(function (n) {
+      return (n.label + ' ' + (n.sublabel || '') + ' ' + n.id).toLowerCase().indexOf(needle) !== -1;
+    }).slice(0, 12).forEach(function (n) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      var strong = document.createElement('span');
+      strong.textContent = n.label;
+      b.appendChild(strong);
+      var small = document.createElement('small');
+      small.textContent = (KIND_LABEL[n.kind] || n.kind) + (n.sublabel ? ' \u00b7 ' + n.sublabel : '');
+      b.appendChild(small);
+      b.addEventListener('click', function () {
+        if (finder) finder.dataset.open = 'false';
+        focusNode(n.id);
+      });
+      finderResults.appendChild(b);
+    });
+  }
+
+  function toggleFinder(open) {
+    if (!finder) return;
+    var next = open == null ? finder.dataset.open !== 'true' : open;
+    finder.dataset.open = next ? 'true' : 'false';
+    if (next && finderInput) { finderInput.value = ''; renderResults(''); finderInput.focus(); }
+  }
+
+  if (finderBtn) finderBtn.addEventListener('click', function () { toggleFinder(); });
+  if (finderInput) {
+    finderInput.addEventListener('input', function () { renderResults(finderInput.value); });
+    finderInput.addEventListener('keydown', function (e) { if (e.key === 'Escape') toggleFinder(false); });
+  }
+
+  /* ---------------------------------------------------------- export */
+
+  var CSS_VAR_NAMES = (data.vars || []).slice();
+
+  function currentVars() {
+    var cs = getComputedStyle(document.documentElement);
+    return CSS_VAR_NAMES.map(function (name) {
+      return name + ':' + cs.getPropertyValue(name).trim() + ';';
+    }).join('');
+  }
+
+  function buildExportSvg() {
+    var clone = svg.cloneNode(true);
+    // Drop every interactive state so the file shows the whole diagram, and the
+    // travelling-dash class so an exported still image is not a dashed line.
+    Array.prototype.forEach.call(clone.querySelectorAll('.is-dim, .is-faded, .is-focus, .a-flow'), function (el) {
+      el.classList.remove('is-dim', 'is-faded', 'is-focus', 'a-flow');
+    });
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    clone.setAttribute('width', W);
+    clone.setAttribute('height', H);
+    clone.removeAttribute('style');
+
+    var svgCss = document.getElementById('diagram-svg-css');
+    var css = 'svg{' + currentVars() + '}' + (svgCss ? svgCss.textContent : '');
+    var style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    style.textContent = css;
+    clone.insertBefore(style, clone.firstChild);
+    return clone;
+  }
+
+  function download(blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+
+  function exportSvg() {
+    var clone = buildExportSvg();
+    var text = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+    download(new Blob([text], { type: 'image/svg+xml;charset=utf-8' }), data.slug + '.svg');
+  }
+
+  function exportPng() {
+    var clone = buildExportSvg();
+    var text = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+    var url = URL.createObjectURL(new Blob([text], { type: 'image/svg+xml;charset=utf-8' }));
+    var img = new Image();
+    img.onload = function () {
+      var scale = 2;
+      var canvas = document.createElement('canvas');
+      canvas.width = Math.round(W * scale);
+      canvas.height = Math.round(H * scale);
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(function (blob) { if (blob) download(blob, data.slug + '.png'); }, 'image/png');
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); };
+    img.src = url;
+  }
+
+  var exportMenu = document.getElementById('export-menu');
+  var exportBtn = document.getElementById('btn-export');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var open = exportMenu.dataset.open === 'true';
+      exportMenu.dataset.open = open ? 'false' : 'true';
+      exportBtn.setAttribute('aria-expanded', open ? 'false' : 'true');
+    });
+    document.addEventListener('click', function () {
+      exportMenu.dataset.open = 'false';
+      exportBtn.setAttribute('aria-expanded', 'false');
+    });
+  }
+  var exportSvgBtn = document.getElementById('export-svg');
+  var exportPngBtn = document.getElementById('export-png');
+  if (exportSvgBtn) exportSvgBtn.addEventListener('click', exportSvg);
+  if (exportPngBtn) exportPngBtn.addEventListener('click', exportPng);
+
+  /* ------------------------------------------------------- deep links */
+
+  function updateHash() {
+    var view = currentView();
+    var hash = '';
+    if (focusId) hash = '#node=' + focusId;
+    else if (view) hash = '#view=' + view.id;
+    try { history.replaceState(null, '', location.pathname + location.search + hash); } catch (_) {}
+  }
+
+  function readHash() {
+    var h = location.hash.replace(/^#/, '');
+    if (!h) return false;
+    var parts = h.split('=');
+    if (parts[0] === 'node' && nodeMeta[parts[1]]) { focusNode(parts[1]); return true; }
+    if (parts[0] === 'view') {
+      for (var i = 0; i < views.length; i++) {
+        if (views[i].id === parts[1]) { setView(i, false, true); return true; }
+      }
+    }
+    return false;
+  }
+
+  /* ------------------------------------------------------- shortcuts */
+
+  document.addEventListener('keydown', function (e) {
+    if (e.target && e.target.matches && e.target.matches('input, textarea')) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.key) {
+      case 'f': case '0': fit(true); break;
+      case '+': case '=': zoomBy(1.25); break;
+      case '-': case '_': zoomBy(1 / 1.25); break;
+      case 't': if (themeBtn) themeBtn.click(); break;
+      case 'p': if (presetBtn) presetBtn.click(); break;
+      case 'g': toggleGuide(); break;
+      case '/': e.preventDefault(); toggleFinder(true); break;
+      case '[': if (views.length) setView(viewIndex <= 0 ? views.length - 1 : viewIndex - 1, true); break;
+      case ']': if (views.length) setView(viewIndex === -1 ? 0 : (viewIndex + 1) % views.length, true); break;
+      case 'Escape':
+        clearFocus();
+        if (guide) guide.dataset.open = 'false';
+        toggleFinder(false);
+        break;
+    }
+  });
+
+  /* ------------------------------------------------------------- boot */
+
+  fit(false);
+  if (!readHash()) setView(-1, false);
+  window.addEventListener('resize', function () { fit(false); });
+})();
+
+</script>
+</body>
+</html>

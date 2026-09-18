@@ -1,0 +1,1623 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EstateSync v1.1 — Master SaaS Architecture &amp; Security Edge</title>
+<meta name="description" content="Architecture overview for the EstateSync multi-tenant property-management SaaS v1.1: the Cloudflare security edge, trust boundaries, WAF and rate-limit policy, Zero Trust for internal access, and the PostgreSQL/RLS authority model behind them.">
+<script>
+  // Resolve the theme before first paint, sharing archify's storage key so the
+  // choice carries between this page and the diagram pages.
+  (function () {
+    try {
+      var theme = null;
+      try {
+        var param = new URLSearchParams(window.location.search).get('theme');
+        if (param === 'light' || param === 'dark') theme = param;
+      } catch (_) {}
+      if (!theme) { try { theme = localStorage.getItem('archify-theme'); } catch (_) {} }
+      if (theme !== 'light' && theme !== 'dark') {
+        theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (_) {}
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
+<style>
+/* ==========================================================================
+   EstateSync architecture site — shared chrome.
+
+   The token block is deliberately the same vocabulary the archify diagram
+   pages use (--frontend-stroke, --arrow-emphasis, --mask, ...) so the overview
+   page and every diagram read as one system, in both themes.
+   ========================================================================== */
+
+:root,
+[data-theme="dark"] {
+  --bg: #020617;
+  --grid: #1e293b;
+  --text: #ffffff;
+  --text-muted: #94a3b8;
+  --text-dim: #475569;
+  /* UI chrome needs more contrast than SVG .t-dim accents. */
+  --text-faint: #7d8da1;
+
+  --panel: rgba(15, 23, 42, 0.5);
+  --panel-border: #1e293b;
+  --panel-hover: rgba(30, 41, 59, 0.6);
+  --lane-fill: rgba(15, 23, 42, 0.22);
+  --lane-stroke: #334155;
+
+  --arrow: #64748b;
+  --arrow-emphasis: #34d399;
+  --mask: #0f172a;
+
+  --frontend-fill: rgba(8, 51, 68, 0.4);
+  --frontend-stroke: #22d3ee;
+  --backend-fill: rgba(6, 78, 59, 0.4);
+  --backend-stroke: #34d399;
+  --database-fill: rgba(76, 29, 149, 0.3);
+  --database-stroke: #a78bfa;
+  --cloud-fill: rgba(120, 53, 15, 0.4);
+  --cloud-stroke: #fbbf24;
+  --security-fill: rgba(136, 19, 55, 0.35);
+  --security-stroke: #fb7185;
+  --external-fill: rgba(30, 41, 59, 0.5);
+  --external-stroke: #94a3b8;
+  --queue-fill: rgba(12, 74, 110, 0.35);
+  --queue-stroke: #38bdf8;
+  --actor-fill: rgba(51, 65, 85, 0.45);
+  --actor-stroke: #e2e8f0;
+  --storage-fill: rgba(19, 78, 74, 0.4);
+  --storage-stroke: #2dd4bf;
+
+  --accent: #34d399;
+
+  --toolbar-bg: rgba(15, 23, 42, 0.85);
+  --toolbar-menu-bg: rgba(2, 6, 23, 0.96);
+  --toolbar-border: #334155;
+  --toolbar-text: #cbd5e1;
+  --toolbar-hover: #1e293b;
+
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --grid: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+  --text-faint: #64748b;
+
+  --panel: #ffffff;
+  --panel-border: #e2e8f0;
+  --panel-hover: #f1f5f9;
+  --lane-fill: rgba(255, 255, 255, 0.6);
+  --lane-stroke: #cbd5e1;
+
+  --arrow: #94a3b8;
+  --arrow-emphasis: #059669;
+  --mask: #ffffff;
+
+  --frontend-fill: #ecfeff;
+  --frontend-stroke: #0891b2;
+  --backend-fill: #ecfdf5;
+  --backend-stroke: #059669;
+  --database-fill: #f5f3ff;
+  --database-stroke: #7c3aed;
+  --cloud-fill: #fffbeb;
+  --cloud-stroke: #d97706;
+  --security-fill: #fff1f2;
+  --security-stroke: #e11d48;
+  --external-fill: #f8fafc;
+  --external-stroke: #64748b;
+  --queue-fill: #f0f9ff;
+  --queue-stroke: #0284c7;
+  --actor-fill: #f1f5f9;
+  --actor-stroke: #475569;
+  --storage-fill: #f0fdfa;
+  --storage-stroke: #0d9488;
+
+  --accent: #059669;
+
+  --toolbar-bg: rgba(255, 255, 255, 0.92);
+  --toolbar-menu-bg: rgba(255, 255, 255, 0.98);
+  --toolbar-border: #cbd5e1;
+  --toolbar-text: #334155;
+  --toolbar-hover: #f1f5f9;
+
+  --shadow: 0 18px 40px rgba(15, 23, 42, 0.10);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+/* ---------------------------------------------------------------- toolbar */
+
+.toolbar {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 100;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+}
+.toolbar button,
+.toolbar a.toolbar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-bg);
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.72rem;
+  text-decoration: none;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.toolbar button:hover,
+.toolbar a.toolbar-link:hover { background: var(--toolbar-hover); color: var(--text); }
+.toolbar button[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
+.toolbar button:focus-visible { outline: 2px solid var(--frontend-stroke); outline-offset: 1px; }
+
+.toolbar-wrap { position: relative; }
+.toolbar-menu {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  min-width: 11rem;
+  padding: 0.3rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+  display: none;
+  flex-direction: column;
+  gap: 0.1rem;
+  z-index: 2;
+}
+.toolbar-menu[data-open="true"] { display: flex; }
+.toolbar-menu button {
+  border: 0;
+  background: transparent;
+  justify-content: flex-start;
+  border-radius: 0.4rem;
+  white-space: nowrap;
+}
+.toolbar-menu button:hover { background: var(--toolbar-hover); }
+
+/* ------------------------------------------------------------ overview page */
+
+.overview { padding: 2rem; }
+.overview .container { width: 100%; max-width: 1180px; margin: 0 auto; }
+
+.eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.9rem;
+}
+h1 {
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 0 0 0.9rem;
+  letter-spacing: -0.01em;
+}
+.overview .header { padding: 2.5rem 0 0; margin-bottom: 2.5rem; }
+.subtitle { color: var(--text-muted); max-width: 66ch; margin: 0 0 1.4rem; }
+.header-links { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.header-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.75rem;
+}
+.header-links a:hover { color: var(--text); border-color: var(--accent); }
+
+/* Grid lines are drawn per-tile rather than by a 1px gap over a coloured
+   container, so a partly-filled last row leaves background, not a block. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1px;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  margin-bottom: 3rem;
+}
+.stat { background: var(--bg); padding: 1.1rem 1rem; box-shadow: 0 0 0 1px var(--panel-border); }
+.stat-value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+.stat-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-top: 0.35rem;
+}
+
+.overview section { margin-bottom: 3.25rem; }
+h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+h2 .num { color: var(--text-dim); font-size: 0.8rem; font-weight: 400; }
+.section-lede { color: var(--text-muted); max-width: 70ch; margin: 0 0 1.5rem; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; }
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.card:hover {
+  border-color: var(--card-accent, var(--accent));
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+.card-kind {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--card-accent, var(--accent));
+  margin-bottom: 0.7rem;
+}
+.card h3 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.55rem; }
+.card p { color: var(--text-muted); margin: 0 0 1rem; font-size: 0.82rem; }
+.card-answers {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  flex: 1;
+}
+.card-answers li { padding-left: 1rem; position: relative; }
+.card-answers li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--card-accent, var(--accent));
+  opacity: 0.6;
+}
+.card-open { font-size: 0.75rem; color: var(--card-accent, var(--accent)); }
+
+.panel {
+  padding: 1.4rem 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+}
+.panel + .panel { margin-top: 1rem; }
+.panel p { margin: 0 0 0.9rem; color: var(--text-muted); }
+.panel p:last-child { margin-bottom: 0; }
+.panel strong { color: var(--text); font-weight: 600; }
+.panel ol, .panel ul { margin: 0 0 0.9rem; padding-left: 1.3rem; color: var(--text-muted); }
+.panel li { margin-bottom: 0.3rem; }
+.panel > :last-child { margin-bottom: 0; }
+
+code {
+  font-family: inherit;
+  font-size: 0.85em;
+  padding: 0.1em 0.4em;
+  border-radius: 0.3rem;
+  background: var(--panel-hover);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+}
+.callout { border-left: 3px solid var(--security-stroke); }
+.callout .callout-tag {
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--security-stroke);
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.table-wrap { overflow-x: auto; border-radius: 0.75rem; border: 1px solid var(--panel-border); }
+.panel .table-wrap { margin: 0.2rem 0 0.9rem; }
+.panel > .table-wrap:last-child { margin-bottom: 0; }
+
+/* Rollout checklists: an empty box, not a ticked one -- the document is the
+   checklist, and nothing here should imply an item is done. */
+ul.checklist { list-style: none; padding-left: 0; }
+ul.checklist li { padding-left: 1.35rem; position: relative; }
+ul.checklist li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.28em;
+  width: 0.72em;
+  height: 0.72em;
+  border: 1px solid var(--panel-border);
+  border-radius: 2px;
+  background: var(--panel-hover);
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.8rem; min-width: 34rem; }
+th, td {
+  padding: 0.7rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--panel-border);
+  vertical-align: top;
+}
+th {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 500;
+  background: var(--panel);
+}
+tbody tr:last-child td { border-bottom: 0; }
+td { color: var(--text-muted); }
+td:first-child { color: var(--text); }
+
+.domains { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; }
+.domain {
+  padding: 1rem 1.1rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  border-top: 2px solid var(--domain-accent, var(--accent));
+}
+.domain h4 { margin: 0 0 0.6rem; font-size: 0.8rem; font-weight: 600; color: var(--domain-accent, var(--accent)); }
+.domain ul { list-style: none; margin: 0; padding: 0; font-size: 0.75rem; color: var(--text-muted); }
+
+footer.overview-footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--panel-border);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  justify-content: space-between;
+}
+footer.overview-footer a { color: var(--text-muted); }
+
+/* --------------------------------------------------------- diagram page shell */
+
+.diagram-page { padding: 0; overflow: hidden; }
+.diagram-head {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 3.4rem 1.25rem 1rem;
+}
+.diagram-head h1 { font-size: clamp(1.2rem, 2.6vw, 1.7rem); margin-bottom: 0.5rem; }
+.diagram-head p { color: var(--text-muted); max-width: 76ch; margin: 0; font-size: 0.82rem; }
+.diagram-head .kind {
+  font-size: 0.65rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--badge-accent, var(--accent));
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+.stage {
+  position: relative;
+  overflow: hidden;
+  height: clamp(420px, 70vh, 760px);
+  margin: 0.5rem 0 0;
+  border-top: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--bg);
+  touch-action: none;
+  cursor: grab;
+}
+.stage.is-panning { cursor: grabbing; user-select: none; }
+.stage svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  shape-rendering: geometricPrecision;
+}
+.stage.is-animating svg { transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+.stage.is-animating svg * { transition: none; }
+
+.zoom-bar {
+  position: absolute;
+  right: 0.9rem;
+  bottom: 0.9rem;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.15rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(8px);
+}
+.zoom-bar button {
+  border: 0;
+  background: transparent;
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.72rem;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0 0.3rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+.zoom-bar button:hover { background: var(--toolbar-hover); color: var(--text); }
+.zoom-bar .zoom-level { font-size: 0.66rem; color: var(--text-faint); min-width: 3rem; text-align: center; }
+
+.legend {
+  position: absolute;
+  left: 0.9rem;
+  bottom: 0.9rem;
+  z-index: 11;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  max-width: min(60%, 34rem);
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--panel-border);
+  background: var(--toolbar-bg);
+  backdrop-filter: blur(8px);
+  font-size: 0.64rem;
+  color: var(--text-muted);
+}
+.legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+.legend i { width: 9px; height: 9px; border-radius: 2px; border: 1px solid; display: inline-block; }
+
+/* ---------------------------------------------------------------- guide drawer */
+
+.guide {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 14;
+  width: min(23rem, calc(100% - 1.8rem));
+  max-height: calc(100% - 1.8rem);
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+  display: none;
+}
+.guide[data-open="true"] { display: block; }
+.guide h2 { font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 0.6rem; display: block; }
+.guide-title { font-size: 0.9rem; font-weight: 600; margin: 0 0 0.4rem; }
+.guide-caption { font-size: 0.76rem; color: var(--text-muted); margin: 0 0 0.9rem; }
+.guide-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.9rem; }
+.guide-actions button {
+  border: 1px solid var(--toolbar-border);
+  background: transparent;
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+.guide-actions button:hover { background: var(--toolbar-hover); color: var(--text); }
+.guide-chapters { list-style: none; margin: 0; padding: 0; counter-reset: chapter; }
+.guide-chapters li { margin-bottom: 0.15rem; }
+.guide-chapters button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+.guide-chapters button:hover { background: var(--toolbar-hover); color: var(--text); }
+.guide-chapters button[aria-current="true"] { background: var(--toolbar-hover); color: var(--accent); }
+
+/* ---------------------------------------------------------------- focus card */
+
+.focus {
+  position: absolute;
+  left: 0.9rem;
+  top: 0.9rem;
+  z-index: 13;
+  width: min(20rem, calc(100% - 1.8rem));
+  max-height: calc(100% - 4.5rem);
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--toolbar-border);
+  border-left: 3px solid var(--focus-accent, var(--accent));
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+  display: none;
+}
+.focus[data-open="true"] { display: block; }
+.focus-kind {
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--focus-accent, var(--accent));
+}
+.focus h3 { margin: 0.25rem 0 0.15rem; font-size: 0.92rem; }
+.focus .focus-sub { color: var(--text-muted); font-size: 0.75rem; margin: 0 0 0.7rem; }
+.focus .focus-detail { font-size: 0.76rem; color: var(--text-muted); margin: 0 0 0.8rem; }
+.focus .focus-doc { font-size: 0.68rem; color: var(--text-faint); margin: 0 0 0.8rem; }
+.focus .focus-rel-title { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 0.4rem; }
+.focus ul { list-style: none; margin: 0 0 0.8rem; padding: 0; }
+.focus ul li { margin-bottom: 0.2rem; }
+.focus ul button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.28rem 0.4rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+.focus ul button:hover { background: var(--toolbar-hover); color: var(--text); }
+.focus .focus-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.focus .focus-actions button {
+  border: 1px solid var(--toolbar-border);
+  background: transparent;
+  color: var(--toolbar-text);
+  font: inherit;
+  font-size: 0.68rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+.focus .focus-actions button:hover { background: var(--toolbar-hover); color: var(--text); }
+
+/* ---------------------------------------------------------------- finder */
+
+.finder {
+  position: absolute;
+  top: 0.9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  width: min(24rem, calc(100% - 1.8rem));
+  display: none;
+}
+.finder[data-open="true"] { display: block; }
+.finder input {
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  box-shadow: var(--shadow);
+}
+.finder input:focus { outline: 2px solid var(--frontend-stroke); outline-offset: 0; }
+.finder-results {
+  margin-top: 0.35rem;
+  max-height: 15rem;
+  overflow: auto;
+  border-radius: 0.5rem;
+  border: 1px solid var(--toolbar-border);
+  background: var(--toolbar-menu-bg);
+  box-shadow: var(--shadow);
+}
+.finder-results:empty { display: none; }
+.finder-results button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--panel-border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+.finder-results button:last-child { border-bottom: 0; }
+.finder-results button:hover { background: var(--toolbar-hover); color: var(--text); }
+.finder-results button small { display: block; color: var(--text-faint); font-size: 0.66rem; }
+
+/* -------------------------------------------------- diagram notes below stage */
+
+.diagram-notes { max-width: 1180px; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
+.diagram-notes .panel { margin-bottom: 1rem; }
+.diagram-notes h2 { margin-bottom: 0.5rem; }
+
+/* ---------------------------------------------------------------- utilities */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Embed (`?embed=1`) drops the chrome so a diagram can be iframed;
+   present (`?present=1`) keeps the toolbar but hides the page furniture. */
+html[data-embed="true"] .toolbar,
+html[data-embed="true"] .site-nav,
+html[data-embed="true"] .diagram-head,
+html[data-embed="true"] .diagram-notes,
+html[data-embed="true"] .legend { display: none !important; }
+html[data-embed="true"] .stage { height: 100vh; border: 0; }
+
+html[data-present="true"] .site-nav,
+html[data-present="true"] .diagram-head,
+html[data-present="true"] .diagram-notes,
+html[data-present="true"] .legend { display: none !important; }
+html[data-present="true"] .stage { height: 100vh; border: 0; }
+
+@media (max-width: 720px) {
+  .overview { padding: 1rem; }
+  body.diagram-page .toolbar { position: static; justify-content: flex-start; padding: 0.75rem 1rem 0; }
+  .diagram-head { padding-top: 1rem; }
+  .stage { height: clamp(360px, 62vh, 560px); }
+  .legend { display: none; }
+  .focus { top: auto; bottom: 0.9rem; left: 0.9rem; right: 0.9rem; width: auto; max-height: 45%; }
+}
+
+@media print {
+  .toolbar, .zoom-bar, .guide, .focus, .finder, .legend { display: none !important; }
+  .stage { height: auto; border: 0; }
+}
+
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="btn-theme" type="button" aria-label="Toggle colour theme"><span id="theme-label">Dark</span></button>
+</div>
+
+<div class="overview">
+<div class="container">
+
+  <header class="header">
+    <div class="eyebrow">Architecture reference &middot; v1.1</div>
+    <h1>EstateSync &mdash; Master SaaS Architecture</h1>
+    <p class="subtitle">
+      A multi-tenant property-management platform protected by a <strong>Cloudflare security
+      edge</strong> in front and <strong>PostgreSQL RLS</strong> at the bottom. Cloudflare
+      decides whether traffic should reach the application; Supabase Auth decides who the user
+      is; RLS decides which rows they may touch. The fifteen diagrams below trace what that
+      separation implies.
+    </p>
+    <div class="header-links">
+      <a href="#diagrams">Jump to diagrams</a>
+      <a href="#security-edge">Security edge</a>
+      <a href="#boundaries">Trust boundaries</a>
+      <a href="#controls">WAF &amp; rate limits</a>
+      <a href="#rollout">Rollout checklist</a>
+      <a href="#plans">Free-plan feasibility</a>
+      <a href="14-master-architecture.md">Consolidated view (markdown) &#8599;</a>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-value">22</div><div class="stat-label">architecture documents</div></div>
+    <div class="stat"><div class="stat-value">17</div><div class="stat-label">explorable diagrams</div></div>
+    <div class="stat"><div class="stat-value">4</div><div class="stat-label">trust boundaries</div></div>
+    <div class="stat"><div class="stat-value">11</div><div class="stat-label">protected surfaces</div></div>
+    <div class="stat"><div class="stat-value">5</div><div class="stat-label">rollout phases</div></div>
+    <div class="stat"><div class="stat-value">7</div><div class="stat-label">tenant-table requirements</div></div>
+    <div class="stat"><div class="stat-value">8</div><div class="stat-label">pull-request gates</div></div>
+  </div>
+
+  <section id="diagrams">
+    <h2><span class="num">01</span> The seventeen views</h2>
+    <p class="section-lede">
+      Each is a standalone page &mdash; pan and zoom, switch theme or visual style, step through
+      the guided views, click any node for its source document, and export to PNG or SVG.
+      Nothing needs a build step or a network connection.
+    </p>
+
+    <div class="cards">
+      <a class="card" href="diagrams/system-context.html" style="--card-accent: var(--external-stroke)">
+        <div class="card-kind">Context</div>
+        <h3>System context</h3>
+        <p>Who uses the platform, what it owns versus rents, and where the trust boundary around the Supabase project sits.</p>
+        <ul class="card-answers">
+          <li>The nine roles and the two clients they use</li>
+          <li>Managed infrastructure versus owned logic</li>
+          <li>Which third parties receive data, and from where</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/runtime-architecture.html" style="--card-accent: var(--backend-stroke)">
+        <div class="card-kind">Architecture</div>
+        <h3>Runtime architecture</h3>
+        <p>Every process and every arrow: the request path, the one arrow that skips RLS, and the async fan-out behind the request.</p>
+        <ul class="card-answers">
+          <li>Where the publishable key ends and the JWT begins</li>
+          <li>Which arrow into Postgres is not RLS-filtered</li>
+          <li>What leaves the request path and becomes a job</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/privileged-path.html" style="--card-accent: var(--security-stroke)">
+        <div class="card-kind">Sequence</div>
+        <h3>The privileged path</h3>
+        <p>What an Edge Function validates before it touches <code>service_role</code>, and why a direct call cannot shorten the trip.</p>
+        <ul class="card-answers">
+          <li>The five validations, in order</li>
+          <li>Why the organization id is an output, never an input</li>
+          <li>How the service key is kept out of client bundles</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/tenant-isolation.html" style="--card-accent: var(--security-stroke)">
+        <div class="card-kind">Security</div>
+        <h3>Tenant isolation</h3>
+        <p>The tenancy chain from <code>auth.users</code> to every tenant-owned table, and the resource-level access planned beside it.</p>
+        <ul class="card-answers">
+          <li>Why membership is not stored on <code>profiles</code></li>
+          <li>How one predicate covers every table</li>
+          <li>What the mandatory tenant-table contract requires</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/trust-boundaries.html" style="--card-accent: var(--security-stroke)">
+        <div class="card-kind">Security &middot; v1.1</div>
+        <h3>Trust boundaries</h3>
+        <p>The four crossings where trust changes: internet to perimeter, perimeter to origins, origins to Postgres, and Postgres out to integrations.</p>
+        <ul class="card-answers">
+          <li>What each boundary is enforced by</li>
+          <li>Why service-role custody is a boundary, not a detail</li>
+          <li>Where AI coding agents sit — outside production</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/security-edge.html" style="--card-accent: var(--security-stroke)">
+        <div class="card-kind">Security &middot; v1.1</div>
+        <h3>Cloudflare security edge</h3>
+        <p>The perimeter controls in front of the Vercel and Supabase origins, and the identity, authorization and integrity layers behind them.</p>
+        <ul class="card-answers">
+          <li>The seven-way responsibility split</li>
+          <li>The three questions each layer owns</li>
+          <li>What a perimeter control cannot decide</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/waf-rate-limits.html" style="--card-accent: var(--security-stroke)">
+        <div class="card-kind">Controls &middot; v1.1</div>
+        <h3>WAF &amp; rate-limit matrix</h3>
+        <p>Which control acts on which surface, with the starting policy for all eleven protected surfaces and the action that follows.</p>
+        <ul class="card-answers">
+          <li>The full surface / threat / policy matrix</li>
+          <li>The seven custom WAF rule categories</li>
+          <li>Why a rate limit is not a business counter</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/deployment-topology.html" style="--card-accent: var(--cloud-stroke)">
+        <div class="card-kind">Topology &middot; v1.1</div>
+        <h3>Deployment topology</h3>
+        <p>DNS surfaces, the shared Cloudflare edge, and Option A versus Option B — a Worker gateway only where it earns its hop.</p>
+        <ul class="card-answers">
+          <li>Every hostname, including the non-public ones</li>
+          <li>When a controlled API gateway is justified</li>
+          <li>How mobile reaches Supabase directly</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/zero-trust.html" style="--card-accent: var(--security-stroke)">
+        <div class="card-kind">Internal access &middot; v1.1</div>
+        <h3>Zero Trust &amp; internal access</h3>
+        <p>Cloudflare Access in front of everything that should never have been public: staging, dashboards, deployment tools, the control plane.</p>
+        <ul class="card-answers">
+          <li>The identity → MFA → device → policy chain</li>
+          <li>The seven candidate protected resources</li>
+          <li>Why it does not replace RLS</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/control-chain.html" style="--card-accent: var(--database-stroke)">
+        <div class="card-kind">Defence layers &middot; v1.1</div>
+        <h3>Control chain</h3>
+        <p>Seven layers, seven questions, and the specific attack class each one is responsible for rejecting.</p>
+        <ul class="card-answers">
+          <li>What Cloudflare mitigates, and what it cannot</li>
+          <li>Where the authoritative boundary actually is</li>
+          <li>What only audit can answer</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/data-model.html" style="--card-accent: var(--database-stroke)">
+        <div class="card-kind">Domain model</div>
+        <h3>Data model</h3>
+        <p>One spine, five domains: tenancy comes down from <code>organizations</code> and everything else hangs off it.</p>
+        <ul class="card-answers">
+          <li>The spine every domain depends on</li>
+          <li>Portfolio, operations, finance and documents</li>
+          <li>The rules that keep the ledger append-oriented</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/maintenance-lifecycle.html" style="--card-accent: var(--cloud-stroke)">
+        <div class="card-kind">State machine</div>
+        <h3>Maintenance lifecycle</h3>
+        <p>A maintenance request from intake to closure, with the pause state that is deliberately not an exit.</p>
+        <ul class="card-answers">
+          <li>Which transitions are permitted</li>
+          <li>What pauses a request versus what ends it</li>
+          <li>Which records attach to live work</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/finance-dataflow.html" style="--card-accent: var(--cloud-stroke)">
+        <div class="card-kind">Data flow</div>
+        <h3>Finance data flow</h3>
+        <p>Two money flows that must stay distinguishable &mdash; property rent and platform subscription billing &mdash; meeting in one ledger.</p>
+        <ul class="card-answers">
+          <li>What is generated versus typed in</li>
+          <li>Where a webhook may and may not write</li>
+          <li>What immutable evidence material changes leave</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/ci-gates.html" style="--card-accent: var(--backend-stroke)">
+        <div class="card-kind">Pipeline</div>
+        <h3>CI gates</h3>
+        <p>From pull request to production: the gates that test the code, the gates that test the database, and what runs on a schedule instead.</p>
+        <ul class="card-answers">
+          <li>The gates that assert properties of the schema</li>
+          <li>How tenant isolation is proved on every PR</li>
+          <li>What runs nightly and what runs weekly</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/implementation-checklist.html" style="--card-accent: var(--backend-stroke)">
+        <div class="card-kind">Rollout &middot; v1.1</div>
+        <h3>Implementation checklist</h3>
+        <p>Five phases from DNS to a tested perimeter, each one a gate on the next — with the expected control chain.</p>
+        <ul class="card-answers">
+          <li>What must be true before phase 2 begins</li>
+          <li>Where Turnstile belongs, and where it does not</li>
+          <li>Which attack classes each layer should reject</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/plan-coverage.html" style="--card-accent: var(--cloud-stroke)">
+        <div class="card-kind">Plan limits &middot; v1.1</div>
+        <h3>Plan coverage</h3>
+        <p>What each Cloudflare plan actually provides: what Free covers, what Pro, Business and Enterprise each add, and what no tier provides.</p>
+        <ul class="card-answers">
+          <li>The three constraints that decide a free rollout</li>
+          <li>Which controls pull a rollout to a paid tier</li>
+          <li>Why plan choice never moves the boundary</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+
+      <a class="card" href="diagrams/edge-coverage-gap.html" style="--card-accent: var(--security-stroke)">
+        <div class="card-kind">Reachability &middot; v1.1</div>
+        <h3>Edge coverage gap</h3>
+        <p>Which surfaces the edge actually sees &mdash; and why Supabase API traffic bypasses it on every plan, not just the free one.</p>
+        <ul class="card-answers">
+          <li>What Option A leaves unprotected</li>
+          <li>How Option B brings it back behind the edge</li>
+          <li>The doc 17 path mapping to real endpoints</li>
+        </ul>
+        <span class="card-open">Open diagram &#8594;</span>
+      </a>
+    </div>
+  </section>
+
+  <section id="statement">
+    <h2><span class="num">02</span> The core architectural statement</h2>
+    <p class="section-lede">The paragraph everything else in the document set follows from.</p>
+    <div class="panel">
+      <p>
+        EstateSync is a multi-tenant, full-stack SaaS platform in which <strong>PostgreSQL is
+        the authoritative data and authorization layer</strong>. Web and mobile clients use
+        authenticated Supabase sessions; PostgREST exposes the database through the schema;
+        RLS enforces tenant isolation; Edge Functions handle narrowly scoped privileged
+        operations; integrations are isolated behind explicit boundaries; and CI/CD
+        continuously tests database security and tenant isolation.
+      </p>
+      <p>
+        The architecture is designed to scale from a single organization to a multi-organization
+        SaaS while preserving a clear security boundary and auditable business operations.
+      </p>
+    </div>
+    <div class="panel">
+      <p>
+        <strong>Added in v1.1.</strong> A Cloudflare security edge now sits in front of the
+        public surface. Cloudflare is the <strong>perimeter</strong> security layer; PostgreSQL
+        RLS remains the <strong>authoritative</strong> multi-tenant authorization boundary. The
+        control chain runs Internet &rarr; Cloudflare &rarr; Vercel / Supabase &rarr; Supabase Auth
+        &rarr; application authorization &rarr; PostgreSQL RLS &rarr; database constraints &rarr;
+        audit and monitoring.
+      </p>
+    </div>
+  </section>
+
+  <section id="security-edge">
+    <h2><span class="num">03</span> The security edge</h2>
+    <p class="section-lede">Three different layers, three different questions. This separation is mandatory.</p>
+    <div class="panel">
+      <p>
+        Cloudflare should answer <strong>&ldquo;should this traffic reach the
+        application?&rdquo;</strong>. Supabase Auth answers <strong>&ldquo;who is this
+        user?&rdquo;</strong>. PostgreSQL RLS answers <strong>&ldquo;can this user access this
+        row?&rdquo;</strong>. Each is useless as a substitute for the others, and the failure
+        mode of every perimeter product is the assumption that it also does authorization.
+      </p>
+    </div>
+    <div class="table-wrap" style="margin-top: 1rem">
+      <table>
+        <thead><tr><th>Layer</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td>Cloudflare</td><td>Perimeter, DDoS, WAF, rate limits, bot and challenge controls</td></tr>
+          <tr><td>Vercel</td><td>Web hosting, build and deployment</td></tr>
+          <tr><td>Supabase Auth</td><td>Identity, sessions, JWT</td></tr>
+          <tr><td>Application</td><td>Business authorization and validation</td></tr>
+          <tr><td>PostgreSQL RLS</td><td>Tenant and row authorization</td></tr>
+          <tr><td>Database</td><td>Integrity constraints</td></tr>
+          <tr><td>Audit / monitoring</td><td>Accountability and detection</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel callout" style="margin-top: 1rem">
+      <span class="callout-tag">What the edge cannot do</span>
+      <p>
+        A rate limit can slow an abusive client; it cannot decide whether that client is
+        entitled to a given tenant&rsquo;s rows. Perimeter controls are probabilistic and tuned
+        against real traffic, identity is a claim about a session rather than an entitlement to
+        data, and only RLS sees the row being requested.
+      </p>
+    </div>
+  </section>
+
+  <section id="boundaries">
+    <h2><span class="num">04</span> Trust boundaries</h2>
+    <p class="section-lede">Traffic crosses four times, and trust is granted only once — at the row, by RLS.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Boundary</th><th>Crossing</th><th>Enforced by</th></tr></thead>
+        <tbody>
+          <tr><td>TB-01</td><td>Internet &rarr; Cloudflare</td><td>WAF, DDoS protection, rate limits, bot controls</td></tr>
+          <tr><td>TB-02</td><td>Cloudflare &rarr; Vercel / Supabase</td><td>Origin configuration and TLS</td></tr>
+          <tr><td>TB-03</td><td>Service zone &rarr; Postgres</td><td>JWT &rarr; org membership &rarr; RLS &rarr; row access</td></tr>
+          <tr><td>TB-04</td><td>Postgres &rarr; external integrations</td><td>Integration adapters, idempotency, webhook verification</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel callout" style="margin-top: 1rem">
+      <span class="callout-tag">Two rules that define the boundary</span>
+      <p>
+        <strong>Service-role credentials</strong> are restricted to trusted server-side
+        environments such as Edge Functions, and are never exposed to web or mobile clients.
+      </p>
+      <p>
+        <strong>AI coding agents</strong> are outside the production trust boundary and receive
+        least-privilege development credentials only. An agent may change the architecture; it
+        may not hold a credential that reaches production data.
+      </p>
+    </div>
+  </section>
+
+  <section id="controls">
+    <h2><span class="num">05</span> WAF &amp; rate-limit policy</h2>
+    <p class="section-lede">
+      Starting-point values for the eleven surfaces that attract abuse. They must be tuned
+      against real traffic and false-positive data — the numbers are a hypothesis, not a
+      specification.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Surface</th><th>Threat</th><th>Starting policy</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td><code>/auth/login</code></td><td>Credential stuffing</td><td>5 / 5 min / client</td><td>Challenge, then block</td></tr>
+          <tr><td><code>/auth/signup</code></td><td>Fake accounts</td><td>5 / 10 min / client</td><td>Turnstile / challenge</td></tr>
+          <tr><td><code>/auth/reset</code></td><td>Reset abuse</td><td>5 / 15 min / client</td><td>Challenge</td></tr>
+          <tr><td><code>/api/*</code></td><td>API abuse</td><td>120 / min / client</td><td>429 / challenge</td></tr>
+          <tr><td><code>/properties/*</code></td><td>Scraping</td><td>120 / min / client</td><td>Challenge</td></tr>
+          <tr><td><code>/documents/*</code></td><td>Bulk access</td><td>60 / min / client</td><td>Challenge</td></tr>
+          <tr><td><code>/payments/*</code></td><td>Transaction abuse</td><td>20 / min / client</td><td>Block / challenge</td></tr>
+          <tr><td><code>/webhooks/*</code></td><td>Flooding</td><td>Provider-specific</td><td>Validate + rate limit</td></tr>
+          <tr><td><code>/admin/*</code></td><td>Admin attack</td><td>Very restrictive</td><td>Challenge / allowlist</td></tr>
+          <tr><td><code>/public/*</code></td><td>Bot / spam</td><td>60 / min / client</td><td>Challenge</td></tr>
+          <tr><td>File upload</td><td>Resource exhaustion</td><td>20 / 10 min / client</td><td>Block / challenge</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel" style="margin-top: 1rem">
+      <p><strong>Custom rule categories</strong>, beyond the managed baseline:</p>
+      <ol>
+        <li>block known malicious sources</li>
+        <li>challenge anomalous login traffic</li>
+        <li>restrict unexpected HTTP methods</li>
+        <li>protect sensitive paths</li>
+        <li>challenge suspicious automation</li>
+        <li>protect administration surfaces</li>
+        <li>restrict webhook traffic where provider IP / signature controls permit</li>
+      </ol>
+    </div>
+    <div class="panel callout">
+      <span class="callout-tag">A perimeter control is not a business control</span>
+      <p>
+        Rate limiting is a perimeter control, not a precise business counter. Application
+        authorization, idempotency and financial controls remain inside EstateSync — the edge
+        decides whether traffic arrives, not what it is allowed to do.
+      </p>
+    </div>
+  </section>
+
+  <section id="topology">
+    <h2><span class="num">06</span> Deployment topology</h2>
+    <p class="section-lede">Both shapes are supported; the choice is per-API, not per-project.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Option</th><th>Path</th><th>Use when</th></tr></thead>
+        <tbody>
+          <tr><td>A &mdash; initial</td><td>Browser &rarr; Cloudflare &rarr; Vercel, Supabase via the Supabase client</td><td>Default. The perimeter protects the public application and RLS protects direct Supabase access.</td></tr>
+          <tr><td>B &mdash; controlled gateway</td><td>Browser &rarr; Cloudflare &rarr; Worker / API gateway &rarr; Supabase</td><td>Selectively, for sensitive APIs or integrations where centralised edge controls justify the added complexity.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel" style="margin-top: 1rem">
+      <p><strong>DNS surfaces</strong> are part of the security posture, not just routing:</p>
+      <ul>
+        <li><code>app.example.com</code> &rarr; Vercel</li>
+        <li><code>www.example.com</code> &rarr; Vercel</li>
+        <li><code>staging.example.com</code> &rarr; staging environment</li>
+        <li><code>admin.example.com</code> &rarr; protected administrative surface</li>
+      </ul>
+      <p>
+        Mobile clients use Supabase Auth and the normal Supabase client pattern; PostgreSQL RLS
+        remains their tenant-isolation boundary. There is no Vercel application in that path.
+      </p>
+      <p>
+        <strong>Do not over-proxy.</strong> Do not proxy every CRUD operation without a concrete
+        requirement, and do not expose internal infrastructure merely for convenience — every
+        added hop is a new place for authorization assumptions to hide.
+      </p>
+    </div>
+  </section>
+
+  <section id="zero-trust">
+    <h2><span class="num">07</span> Zero Trust &amp; internal access</h2>
+    <p class="section-lede">Cloudflare Access in front of everything that should never have been public in the first place.</p>
+    <div class="panel">
+      <p>
+        An internal resource is reachable only after <strong>identity &rarr; MFA &rarr; device
+        policy &rarr; access policy</strong> have each narrowed who can continue. Public customer
+        traffic and internal administration are governed by <em>separate</em> policies on
+        purpose: sharing one policy across both populations means the weaker requirement
+        silently sets the bar for the stronger one.
+      </p>
+      <p><strong>Candidate protected resources:</strong></p>
+      <ul>
+        <li>staging environments</li>
+        <li>internal admin portal</li>
+        <li>monitoring dashboards</li>
+        <li>deployment tools</li>
+        <li>AI software-factory control plane</li>
+        <li>development services</li>
+        <li>database administration interfaces</li>
+      </ul>
+    </div>
+    <div class="panel callout">
+      <span class="callout-tag">Not a substitute</span>
+      <p>
+        Zero Trust protects <em>reachability of internal tools</em>. It is not a replacement for
+        PostgreSQL RLS: an authenticated developer reaching staging still meets RLS on every row,
+        and a compromised internal session still cannot read another tenant&rsquo;s data.
+      </p>
+    </div>
+  </section>
+
+  <section id="runtime">
+    <h2><span class="num">08</span> Runtime shape</h2>
+    <p class="section-lede">There is no application server. There is one privileged path.</p>
+    <div class="panel">
+      <p>
+        The request path is short by design: a client holding the publishable key and an
+        authenticated JWT reaches <code>Auth / GoTrue</code>, then <code>PostgREST</code>, then
+        <code>PostgreSQL</code> &mdash; where the authentication context, RLS policies, grants
+        and business constraints are all applied in the database rather than in a service tier
+        that could be bypassed or forgotten.
+      </p>
+      <p>
+        The privileged path exists for the work that cannot be done that way. An Edge Function
+        validates the JWT, the role and the input, derives the organization context, and only
+        then performs the privileged operation under <code>service_role</code>.
+      </p>
+      <p>
+        Anything long-running or externally dependent &mdash; email, SMS, PDF and report
+        generation, payment reconciliation, scheduled rent reminders, outbound webhooks
+        &mdash; belongs behind an event or queue boundary rather than in the request.
+      </p>
+    </div>
+    <div class="panel callout">
+      <span class="callout-tag">The one rule with no exceptions</span>
+      <p>
+        <strong>The service role must never be exposed through a <code>VITE_*</code> or
+        <code>EXPO_PUBLIC_*</code> variable.</strong> Every other decision in the runtime
+        architecture is downstream of that — including the v1.1 rule that the credential lives
+        only in trusted server-side environments such as Edge Functions.
+      </p>
+    </div>
+  </section>
+
+  <section id="tenancy">
+    <h2><span class="num">09</span> Tenant isolation</h2>
+    <p class="section-lede">The load-bearing mechanism &mdash; which is why authorization is written in SQL.</p>
+    <div class="panel">
+      <p>
+        Membership lives in <code>org_members</code>, <strong>deliberately not on
+        <code>profiles</code></strong>, so a user cannot change their own tenancy by editing a row
+        they own. Every tenant-owned table then carries a stored <code>organization_id</code>.
+      </p>
+      <p>
+        Because tenancy is a stored column rather than something derived by joining up through a
+        property to a landlord, one predicate covers every table &mdash; adding a domain is a
+        migration, not an authorization redesign. The row set is decided inside Postgres
+        <em>after</em> the query arrives, so a UI filter bug, a forged client and a raw
+        <code>curl</code> with the public key all land on the same gate. This is also why the
+        Cloudflare edge cannot be the authorization boundary: it never sees the row.
+      </p>
+      <p>
+        The architecture plans to move from <code>user &rarr; one organization</code> to a user
+        with several organizations, where the <strong>active organization is request or session
+        scoped and explicitly selected</strong> rather than inferred with <code>LIMIT 1</code>.
+      </p>
+    </div>
+    <div class="panel callout">
+      <span class="callout-tag">The mandatory tenant-table contract</span>
+      <p>
+        A tenant-owned table is not complete until it has all seven of these. The grants are the
+        one people forget, and their absence produces <code>42501 permission denied</code> even
+        with perfect policies.
+      </p>
+      <ol>
+        <li><code>organization_id</code></li>
+        <li>row level security enabled</li>
+        <li>row level security forced where appropriate</li>
+        <li>correct policies</li>
+        <li>correct grants</li>
+        <li>appropriate indexes</li>
+        <li>audit behaviour where required</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="stack">
+    <h2><span class="num">10</span> Reference technology stack</h2>
+    <p class="section-lede">No ORM and no API server: the schema generates the API, and the cost is that authorization lives in SQL.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Layer</th><th>Reference choice</th></tr></thead>
+        <tbody>
+          <tr><td>Perimeter</td><td>Cloudflare &mdash; DNS, TLS, DDoS, WAF, rate limits, bot controls, Turnstile</td></tr>
+          <tr><td>Internal access</td><td>Cloudflare Access (Zero Trust) for staging and operational tooling</td></tr>
+          <tr><td>Web</td><td>React + Vite, React Router, TanStack Query</td></tr>
+          <tr><td>Mobile</td><td>Expo + Expo Router, persisted query cache, secure session handling</td></tr>
+          <tr><td>UI</td><td>Tailwind CSS with Radix / shadcn-style component primitives</td></tr>
+          <tr><td>Forms &amp; validation</td><td>React Hook Form + Zod</td></tr>
+          <tr><td>Authentication</td><td>Supabase Auth / GoTrue &mdash; JWT, refresh rotation, MFA step-up</td></tr>
+          <tr><td>Database</td><td>PostgreSQL with RLS as the authorization boundary</td></tr>
+          <tr><td>API</td><td>PostgREST, generated from the schema</td></tr>
+          <tr><td>Storage</td><td>Supabase Storage, org-prefixed keys</td></tr>
+          <tr><td>Server-side actions</td><td>Deno Edge Functions, narrowly scoped</td></tr>
+          <tr><td>Email</td><td>MailerSend or equivalent, behind an integration adapter</td></tr>
+          <tr><td>Monitoring</td><td>Sentry, with PII minimisation by contract</td></tr>
+          <tr><td>Testing</td><td>Vitest plus integration and RLS / tenant-isolation tests</td></tr>
+          <tr><td>Hosting</td><td>Vercel + Supabase</td></tr>
+          <tr><td>Source control &amp; CI</td><td>GitHub, GitHub Actions or equivalent</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="data">
+    <h2><span class="num">11</span> Data domains</h2>
+    <p class="section-lede">
+      One spine, then domains that each hang off it. Foreign keys enforce ownership, unique
+      constraints protect business invariants, check constraints validate bounded states, and
+      schema changes arrive as forward-only migrations.
+    </p>
+    <div class="domains">
+      <div class="domain" style="--domain-accent: var(--external-stroke)">
+        <h4>Spine</h4>
+        <ul><li>organizations</li><li>org_members</li><li>org_invitations</li><li>profiles</li><li>audit_logs</li></ul>
+      </div>
+      <div class="domain" style="--domain-accent: var(--frontend-stroke)">
+        <h4>Portfolio</h4>
+        <ul><li>properties &rarr; units &rarr; leases</li><li>rent_payments</li><li>staff_properties</li></ul>
+      </div>
+      <div class="domain" style="--domain-accent: var(--database-stroke)">
+        <h4>Operations</h4>
+        <ul><li>maintenance_requests</li><li>maintenance_parts</li><li>incidents</li><li>inspections, inspection_items</li><li>vendors</li></ul>
+      </div>
+      <div class="domain" style="--domain-accent: var(--cloud-stroke)">
+        <h4>Finance</h4>
+        <ul><li>subscriptions</li><li>billing_records</li><li>invoices</li><li>chart_of_accounts</li><li>financial_ledger</li></ul>
+      </div>
+      <div class="domain" style="--domain-accent: var(--backend-stroke)">
+        <h4>Documents &amp; communications</h4>
+        <ul><li>agreements</li><li>notification_templates</li><li>notification_logs</li><li>storage_objects</li></ul>
+      </div>
+      <div class="domain" style="--domain-accent: var(--security-stroke)">
+        <h4>Governance</h4>
+        <ul><li>audit_logs</li><li>org_invitations</li><li>access review</li></ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="clients">
+    <h2><span class="num">12</span> Clients</h2>
+    <p class="section-lede">Two clients, one responsibility split. Neither is trusted for anything that matters.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Web</th><th>Mobile</th></tr></thead>
+        <tbody>
+          <tr><td>Stack</td><td>React + Vite, React Router, TanStack Query, React Hook Form, Zod, Supabase JS</td><td>Expo + Expo Router, Supabase JS, persisted TanStack Query cache, secure session handling</td></tr>
+          <tr><td>Deployment target</td><td>Vercel or equivalent static / edge hosting, behind Cloudflare</td><td>Built and distributed as a native app; reaches Supabase directly</td></tr>
+          <tr><td>May handle</td><td colspan="2">Presentation, navigation, local state, optimistic UX, form validation, non-sensitive filtering, session state</td></tr>
+          <tr><td>Must not be trusted for</td><td colspan="2">Tenant isolation, authorization, financial integrity, privileged operations, secret storage</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="delivery">
+    <h2><span class="num">13</span> Delivery &amp; operations</h2>
+    <p class="section-lede">Half of the required gates interrogate the schema rather than the application code.</p>
+    <div class="panel">
+      <p>
+        <strong>Pull requests pass through lint, unit tests, a build, migration validation,
+        dependency and security scanning, integration tests, RLS coverage and tenant
+        isolation</strong> before anything reaches staging. The last two are properties of the
+        database, not of the code: <code>rls-coverage</code> asserts every tenant-owned public
+        table has RLS enabled, a policy, the required grants and the tenancy column;
+        <code>tenant-isolation</code> plants rows for two organizations and proves under RLS that
+        neither can read the other&rsquo;s, then rolls the transaction back.
+      </p>
+      <p>
+        Migrations are forward-only and production migration is automated and auditable. Secrets
+        live in the platform secret manager, and token-based deployment means ordinary CI needs no
+        database password. A failed deployment has to be observable and reversible.
+      </p>
+      <p>
+        Outside the pull-request path, on a schedule: nightly backups, restore drills, dependency
+        and security monitoring, staging error monitoring, and periodic access review. Monitoring
+        covers application and database errors, authentication failures, Edge Function failures,
+        payment and webhook failures, storage failures, abnormal authorization failures, and
+        backup or restore-test failures.
+      </p>
+      <p>
+        <code>audit_logs</code> captures organization, table, record, action, previous and new
+        value, actor, timestamp and request identifier where appropriate. Recovery objectives
+        &mdash; RPO, RTO, retention, restore frequency, ownership and escalation &mdash; are
+        explicit project decisions rather than assumptions.
+      </p>
+    </div>
+  </section>
+
+  <section id="rollout">
+    <h2><span class="num">14</span> Cloudflare rollout checklist</h2>
+    <p class="section-lede">Five phases, each a gate on the next. Each phase is a precondition, not a one-off task.</p>
+    <div class="panel">
+      <p><strong>Phase 1 — Baseline</strong></p>
+      <ul class="checklist">
+        <li>Move authoritative DNS to Cloudflare</li>
+        <li>Enable HTTPS / TLS</li>
+        <li>Enable managed WAF baseline</li>
+        <li>Review Security Events</li>
+        <li>Configure security headers</li>
+        <li>Confirm Vercel / Supabase origins and domains</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <p><strong>Phase 2 — Abuse controls</strong></p>
+      <ul class="checklist">
+        <li>Rate-limit login</li>
+        <li>Rate-limit signup</li>
+        <li>Rate-limit password reset</li>
+        <li>Rate-limit public forms</li>
+        <li>Protect document / file operations</li>
+        <li>Protect payment initiation</li>
+        <li>Protect webhooks</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <p><strong>Phase 3 — Turnstile</strong></p>
+      <ul class="checklist">
+        <li>Separate development, staging and production widgets</li>
+        <li>Add Turnstile to signup</li>
+        <li>Add Turnstile to password reset</li>
+        <li>Add adaptive protection to login</li>
+        <li>Validate every token server-side</li>
+        <li>Keep the secret key server-side only</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <p><strong>Phase 4 — Advanced controls</strong></p>
+      <ul class="checklist">
+        <li>Add custom WAF rules</li>
+        <li>Add bot / challenge policies</li>
+        <li>Protect admin paths</li>
+        <li>Add Cloudflare Access for internal tools</li>
+        <li>Add Worker gateway only where justified</li>
+        <li>Review false positives periodically</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <p><strong>Phase 5 — Security tests</strong></p>
+      <ul class="checklist">
+        <li>Credential stuffing</li>
+        <li>Signup automation</li>
+        <li>API bursts</li>
+        <li>Document enumeration</li>
+        <li>Cross-tenant IDs</li>
+        <li>Malicious payloads</li>
+        <li>Forged webhooks</li>
+        <li>Unauthorized admin access</li>
+      </ul>
+    </div>
+    <div class="table-wrap" style="margin-top: 1rem">
+      <table>
+        <thead><tr><th>Attack</th><th>Rejected by</th></tr></thead>
+        <tbody>
+          <tr><td>Perimeter attack</td><td>Cloudflare mitigates</td></tr>
+          <tr><td>Unauthenticated call</td><td>Supabase Auth rejects</td></tr>
+          <tr><td>Wrong tenant row</td><td>PostgreSQL RLS rejects</td></tr>
+          <tr><td>Invalid business state</td><td>DB / application constraints reject</td></tr>
+          <tr><td>Suspicious automation</td><td>Challenge / block</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="plans">
+    <h2><span class="num">15</span> Free-plan feasibility</h2>
+    <p class="section-lede">
+      The security expansion was written before a plan was chosen. Roughly three-quarters of the
+      rollout checklist runs on Cloudflare Free &mdash; what does not is <em>velocity and
+      breadth</em>, never the trust boundary.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Requirement from v1.1</th><th>Free</th><th>Pro</th><th>Business</th><th>Enterprise</th></tr></thead>
+        <tbody>
+          <tr><td>Managed WAF protections</td><td>Free ruleset only</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+          <tr><td>Per-surface rate limits</td><td><strong>1 rule, 10 s</strong></td><td>2 rules, 1 min</td><td>5 rules, 1 day</td><td>100 rules, custom expressions</td></tr>
+          <tr><td>Rate-limit expression fields</td><td><strong>Path only</strong></td><td>+ host, method, UA, IP</td><td>Yes</td><td>+ body fields</td></tr>
+          <tr><td>Bot categories / bot policy</td><td>No</td><td>Super Bot Fight Mode</td><td>Yes</td><td>Yes + bot score</td></tr>
+          <tr><td>Attack-score rules</td><td>No</td><td>No</td><td>Class only</td><td>Exact score</td></tr>
+          <tr><td>Rule dry-run (log action)</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+          <tr><td>Turnstile</td><td>20 widgets, unlimited challenges</td><td>Yes</td><td>Yes</td><td>+ custom branding</td></tr>
+          <tr><td>Internal access (Access)</td><td>&le; 50 users</td><td>&le; 50 users</td><td>&le; 50 users</td><td>Unlimited</td></tr>
+          <tr><td>Evidence retention</td><td>24 h events / 7 d analytics</td><td>24 h / 7 d</td><td>3 d / 31 d</td><td>30 d / 90 d + Logpush</td></tr>
+          <tr><td>Price (per zone)</td><td>$0</td><td>~$20&ndash;25/mo</td><td>~$200&ndash;250/mo</td><td>Custom</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel callout" style="margin-top: 1rem">
+      <span class="callout-tag">The three constraints that decide a free rollout</span>
+      <ol>
+        <li><strong>One rate-limiting rule</strong> &mdash; path-only expression, per-IP counting, 10-second window and mitigation. Every threshold in doc 17 is outside what Free can express.</li>
+        <li><strong>The Free Managed Ruleset is the only managed ruleset</strong> &mdash; the Cloudflare Managed and OWASP Core rulesets are Pro and above.</li>
+        <li><strong>No log action</strong> &mdash; there is no dry-run, so a rule acts immediately and has to start narrow, widening from Security Analytics.</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <p>
+        <strong>The gap that is not about money.</strong> In Option A the edge only ever sees the
+        Vercel-served hostname: supabase-js talks to the project hostname directly, so the API and
+        data surfaces in the doc 17 matrix are unreachable by the perimeter on <em>any</em> plan.
+        Option B &mdash; a Worker gateway, 100,000 requests/day on Free &mdash; is what brings them
+        back. Doc 17's paths also do not match Supabase's real endpoints
+        (<code>/auth/v1/token</code>, <code>/rest/v1/*</code>, <code>/storage/v1/*</code>,
+        <code>/functions/v1/*</code>), so the matrix needs a mapping pass before implementation.
+      </p>
+      <p>
+        <strong>Operating Free.</strong> Move the other six rate-limit surfaces into the application
+        as counters &mdash; a Durable Object on the free SQLite backend is precise, not approximate
+        &mdash; and lead with Turnstile plus leaked-credential detection, which are both free and
+        are the right controls for authentication anyway. Verify Bot Fight Mode against mobile
+        clients and provider webhooks before leaving it on: it is domain-wide and cannot be
+        selectively skipped. Full detail, sources and the phase-by-phase adaptation are in
+        <a href="21-cloudflare-free-plan-feasibility.md">21-cloudflare-free-plan-feasibility.md</a>.
+      </p>
+    </div>
+    <div class="panel">
+      <p>
+        <strong>What no plan changes.</strong> Cloudflare answers whether traffic should reach the
+        application; Supabase Auth answers who the user is; PostgreSQL RLS answers whether that user
+        may access that row. A free-tier deployment loses perimeter breadth, not the boundary
+        &mdash; every request that reaches Postgres still meets the gate that decides tenant access.
+      </p>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <h2><span class="num">16</span> Where the design strains</h2>
+    <p class="section-lede">Not bugs today &mdash; the places where the current assumptions are load-bearing.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Priority</th><th>What has to change</th><th>Why it matters now</th></tr></thead>
+        <tbody>
+          <tr><td>1 &middot; Multi-organization users</td><td>Replace single-organization inference with an explicit, request-scoped active organization</td><td>A user who belongs to two organizations resolves arbitrarily today</td></tr>
+          <tr><td>2 &middot; Property-level authorization</td><td>Introduce resource access where partial access is required</td><td>Owners and contractors should hold selected properties, not a whole organization</td></tr>
+          <tr><td>3 &middot; Async jobs</td><td>A durable queue for notifications, PDFs, reports, reconciliation, reminders and integrations</td><td>Long-running work currently has nowhere durable to go</td></tr>
+          <tr><td>4 &middot; Payment architecture</td><td>Document property rent payments separately from SaaS subscription billing</td><td>Mixing the two money flows makes revenue reporting ambiguous</td></tr>
+          <tr><td>5 &middot; Integration framework</td><td>Standardise adapters: auth, mapping, retry, idempotency, timeout, failure, audit, webhook verification</td><td>Otherwise each integration drifts on the parts that hurt at 3am</td></tr>
+          <tr><td>6 &middot; Realtime</td><td>Use Realtime selectively for operational workflows</td><td>A live maintenance queue is the first place polling will be felt</td></tr>
+          <tr><td>7 &middot; CORS and configuration hardening</td><td>No permissive wildcard CORS; fail fast on missing project configuration</td><td>A hard-coded fallback silently points at the wrong project</td></tr>
+          <tr><td>8 &middot; Architecture as source of truth</td><td>Version these documents alongside migrations, policies, security docs and CI tests</td><td>The architecture is an engineering contract, not marketing</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="contract">
+    <h2><span class="num">17</span> Architecture as an engineering contract</h2>
+    <p class="section-lede">The document set is written to be a guardrail for AI-assisted development, not only a diagram for humans.</p>
+    <div class="panel">
+      <p><strong>Source-of-truth hierarchy.</strong> Where two sources disagree, the higher one wins.</p>
+      <ol>
+        <li>architecture contract</li>
+        <li>database schema and migrations</li>
+        <li>RLS and authorization policies</li>
+        <li>application code</li>
+        <li>automated tests</li>
+        <li>deployment</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <p><strong>Rules for an AI coding agent working in this repository.</strong></p>
+      <ol>
+        <li>read the architecture before changing code</li>
+        <li>never weaken RLS to solve a UI problem</li>
+        <li>never expose service-role credentials</li>
+        <li>never modify a merged migration in place</li>
+        <li>add tenant-isolation tests for new tenant domains</li>
+        <li>update the architecture when introducing a new domain</li>
+        <li>update security documentation when changing trust boundaries</li>
+        <li>use least privilege — agents hold development credentials only</li>
+        <li>preserve auditability</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <p>
+        <strong>The change workflow.</strong> A request moves through architecture impact
+        analysis, schema / API / security design, implementation, automated tests,
+        tenant-isolation tests, security checks, staging, approval, production, and finally an
+        architecture update &mdash; so the document set cannot silently drift from the system it
+        describes.
+      </p>
+    </div>
+  </section>
+
+  <section id="documents">
+    <h2><span class="num">18</span> Source documents</h2>
+    <p class="section-lede">Everything on this page and in the diagrams is read from these twenty-two files.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Document</th><th>Covers</th></tr></thead>
+        <tbody>
+          <tr><td><a href="01-system-context.md">01-system-context.md</a></td><td>System boundary, primary actors</td></tr>
+          <tr><td><a href="02-runtime.md">02-runtime.md</a></td><td>Request path, privileged path, asynchronous work</td></tr>
+          <tr><td><a href="03-multitenancy-security.md">03-multitenancy-security.md</a></td><td>Tenant model, tenant-table contract, security controls</td></tr>
+          <tr><td><a href="04-data-model.md">04-data-model.md</a></td><td>Core spine, portfolio, operations, finance, documents, database rules</td></tr>
+          <tr><td><a href="05-property-domain.md">05-property-domain.md</a></td><td>Property lifecycle and the maintenance state machine</td></tr>
+          <tr><td><a href="06-finance-payments.md">06-finance-payments.md</a></td><td>Financial flow, SaaS billing, rent payments, financial controls</td></tr>
+          <tr><td><a href="07-api-integrations.md">07-api-integrations.md</a></td><td>API model, integration boundaries, webhooks</td></tr>
+          <tr><td><a href="08-clients.md">08-clients.md</a></td><td>Web and mobile clients, client responsibilities</td></tr>
+          <tr><td><a href="09-cicd-devsecops.md">09-cicd-devsecops.md</a></td><td>Pull-request gates, database-specific gates, scheduled controls</td></tr>
+          <tr><td><a href="10-dr-operations.md">10-dr-operations.md</a></td><td>Backup, recovery objectives, monitoring, audit, incident lifecycle</td></tr>
+          <tr><td><a href="11-architecture-gaps-and-roadmap.md">11-architecture-gaps-and-roadmap.md</a></td><td>The eight priorities above</td></tr>
+          <tr><td><a href="12-ai-software-factory-contract.md">12-ai-software-factory-contract.md</a></td><td>Source-of-truth hierarchy, agent rules, change workflow</td></tr>
+          <tr><td><a href="13-reference-stack.md">13-reference-stack.md</a></td><td>Reference technology stack</td></tr>
+          <tr><td><a href="14-master-architecture.md">14-master-architecture.md</a></td><td>Consolidated master architecture, including the v1.1 security edge chain</td></tr>
+          <tr><td><a href="15-cloudflare-security-edge.md">15-cloudflare-security-edge.md</a></td><td>Perimeter architecture and the responsibility split</td></tr>
+          <tr><td><a href="16-trust-boundaries.md">16-trust-boundaries.md</a></td><td>TB-01 to TB-04, service-role custody, agent boundary</td></tr>
+          <tr><td><a href="17-waf-rate-limit-matrix.md">17-waf-rate-limit-matrix.md</a></td><td>WAF and rate-limit matrix, custom rule categories</td></tr>
+          <tr><td><a href="18-cloudflare-supabase-topology.md">18-cloudflare-supabase-topology.md</a></td><td>Deployment topology, Option A / Option B, DNS examples, mobile</td></tr>
+          <tr><td><a href="19-cloudflare-zero-trust.md">19-cloudflare-zero-trust.md</a></td><td>Internal access, candidate protected resources</td></tr>
+          <tr><td><a href="20-cloudflare-implementation-checklist.md">20-cloudflare-implementation-checklist.md</a></td><td>Five-phase rollout and the expected control chain</td></tr>
+          <tr><td><a href="21-cloudflare-free-plan-feasibility.md">21-cloudflare-free-plan-feasibility.md</a></td><td>Free-plan feasibility, plan coverage, reachability, upgrade triggers</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="overview-footer">
+    <span>Diagrams generated by <code>tools/build-diagrams.mjs</code> from the numbered documents in this repository</span>
+    <span>EstateSync Master Architecture v1.1 &middot; multi-tenant property-management SaaS with a Cloudflare security edge</span>
+  </footer>
+
+</div>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('btn-theme');
+    var label = document.getElementById('theme-label');
+    function sync() {
+      var t = document.documentElement.getAttribute('data-theme');
+      label.textContent = t === 'light' ? 'Light' : 'Dark';
+    }
+    sync();
+    btn.addEventListener('click', function () {
+      var next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('archify-theme', next); } catch (_) {}
+      sync();
+    });
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+EstateSync Master Architecture v1.1
+Generated: 2026-09-18
+Scope: full-stack multi-tenant property-management SaaS
+Security expansion: Cloudflare Security Edge, WAF/rate limiting, trust boundaries, deployment topology, Zero Trust
+Plan feasibility: Cloudflare Free-plan coverage, reachability, upgrade triggers
+Markdown documents: 22

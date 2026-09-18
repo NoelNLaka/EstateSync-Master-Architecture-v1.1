@@ -1,0 +1,146 @@
+/* ==========================================================================
+   Diagram SVG — node kinds, edges, regions and the three visual presets.
+
+   Kept in its own file so the page can hand the exact same stylesheet to the
+   SVG/PNG exporter; that is what makes "export" produce the diagram you are
+   looking at rather than an unstyled ghost.
+   ========================================================================== */
+
+svg.diagram { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+svg.diagram text { pointer-events: none; }
+
+/* ---- node bodies ---- */
+.c-frontend { fill: var(--frontend-fill); stroke: var(--frontend-stroke); }
+.c-backend  { fill: var(--backend-fill);  stroke: var(--backend-stroke); }
+.c-database { fill: var(--database-fill); stroke: var(--database-stroke); }
+.c-cloud    { fill: var(--cloud-fill);    stroke: var(--cloud-stroke); }
+.c-security { fill: var(--security-fill); stroke: var(--security-stroke); }
+.c-external { fill: var(--external-fill); stroke: var(--external-stroke); }
+.c-queue    { fill: var(--queue-fill);    stroke: var(--queue-stroke); }
+.c-actor    { fill: var(--actor-fill);    stroke: var(--actor-stroke); }
+.c-storage  { fill: var(--storage-fill);  stroke: var(--storage-stroke); }
+
+/* Opaque plate behind each node so arrow lines passing underneath are hidden. */
+.c-mask { fill: var(--mask); stroke: none; }
+
+.c-region {
+  fill: color-mix(in srgb, var(--cloud-fill) 48%, transparent);
+  stroke: var(--cloud-stroke);
+  stroke-dasharray: 9 4;
+  stroke-width: 1;
+}
+.c-security-group {
+  fill: transparent;
+  stroke: var(--security-stroke);
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+}
+.c-lane {
+  fill: var(--lane-fill);
+  stroke: var(--lane-stroke);
+  stroke-width: 1;
+  stroke-dasharray: 2 6;
+}
+.c-frame-label { fill: var(--text-faint); }
+.c-lane-title { fill: var(--text-faint); letter-spacing: 0.14em; }
+
+/* ---- text ---- */
+.t-primary { fill: var(--text); }
+.t-muted   { fill: var(--text-muted); }
+.t-dim     { fill: var(--text-dim); }
+.t-accent  { fill: var(--arrow-emphasis); }
+.t-security { fill: var(--security-stroke); }
+
+/* ---- edges ---- */
+.a-default  { stroke: var(--arrow); fill: none; }
+.a-emphasis { stroke: var(--arrow-emphasis); fill: none; }
+.a-security { stroke: var(--security-stroke); fill: none; }
+.a-dashed   { stroke: var(--arrow); fill: none; stroke-dasharray: 5 4; }
+.a-return   { stroke: var(--arrow); fill: none; stroke-dasharray: 2 3; }
+
+.a-label-bg { fill: var(--bg); stroke: var(--panel-border); stroke-width: 0.6; }
+.a-label    { fill: var(--text-faint); }
+.a-label-emphasis { fill: var(--arrow-emphasis); }
+.a-label-security { fill: var(--security-stroke); }
+
+.m-default  { fill: var(--arrow); }
+.m-emphasis { fill: var(--arrow-emphasis); }
+.m-security { fill: var(--security-stroke); }
+.m-dashed   { fill: var(--arrow); }
+
+/* ---- sigils ---- */
+.semantic-sigil {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.76;
+  pointer-events: none;
+}
+.semantic-sigil .sigil-fill { fill: currentColor; stroke: none; }
+.s-frontend { color: var(--frontend-stroke); }
+.s-backend  { color: var(--backend-stroke); }
+.s-database { color: var(--database-stroke); }
+.s-cloud    { color: var(--cloud-stroke); }
+.s-security { color: var(--security-stroke); }
+.s-external { color: var(--external-stroke); }
+.s-queue    { color: var(--queue-stroke); }
+.s-actor    { color: var(--actor-stroke); }
+.s-storage  { color: var(--storage-stroke); }
+
+/* ---- motion ---- */
+svg.diagram .a-flow { stroke-dasharray: 4 10; animation: flow-dash 1.4s linear infinite; }
+@keyframes flow-dash { to { stroke-dashoffset: -28; } }
+html[data-motion="still"] svg.diagram .a-flow { animation: none; stroke-dasharray: none; }
+
+/* ---- selection states ---- */
+svg.diagram g[data-node-id],
+svg.diagram path[data-edge-id] { transition: opacity 0.18s ease; }
+svg.diagram .is-dim { opacity: 0.14; }
+svg.diagram .is-faded { opacity: 0.32; }
+svg.diagram g.is-focus > .c-frontend,
+svg.diagram g.is-focus > .c-backend,
+svg.diagram g.is-focus > .c-database,
+svg.diagram g.is-focus > .c-cloud,
+svg.diagram g.is-focus > .c-security,
+svg.diagram g.is-focus > .c-external,
+svg.diagram g.is-focus > .c-queue,
+svg.diagram g.is-focus > .c-actor,
+svg.diagram g.is-focus > .c-storage { stroke-width: 2.6; }
+svg.diagram g.is-focus { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 40%, transparent)); }
+svg.diagram g[data-node-id]:focus-visible > .c-mask { stroke: var(--accent); stroke-width: 2; }
+svg.diagram g[data-node-id]:focus { outline: none; }
+
+/* ==========================================================================
+   PRESETS — classic (default) / blueprint / editorial
+   ========================================================================== */
+
+svg.diagram[data-preset="blueprint"] .c-frontend,
+svg.diagram[data-preset="blueprint"] .c-backend,
+svg.diagram[data-preset="blueprint"] .c-database,
+svg.diagram[data-preset="blueprint"] .c-cloud,
+svg.diagram[data-preset="blueprint"] .c-security,
+svg.diagram[data-preset="blueprint"] .c-external,
+svg.diagram[data-preset="blueprint"] .c-queue,
+svg.diagram[data-preset="blueprint"] .c-actor,
+svg.diagram[data-preset="blueprint"] .c-storage { fill: var(--bg); }
+svg.diagram[data-preset="blueprint"] rect { rx: 0; }
+svg.diagram[data-preset="blueprint"] .c-region { fill: transparent; stroke-dasharray: 3 3; }
+svg.diagram[data-preset="blueprint"] .c-lane { fill: transparent; stroke-dasharray: 1 5; }
+svg.diagram[data-preset="blueprint"] .a-label-bg { fill: var(--bg); }
+
+svg.diagram[data-preset="editorial"] rect { rx: 10; }
+svg.diagram[data-preset="editorial"] .c-frontend,
+svg.diagram[data-preset="editorial"] .c-backend,
+svg.diagram[data-preset="editorial"] .c-database,
+svg.diagram[data-preset="editorial"] .c-cloud,
+svg.diagram[data-preset="editorial"] .c-security,
+svg.diagram[data-preset="editorial"] .c-external,
+svg.diagram[data-preset="editorial"] .c-queue,
+svg.diagram[data-preset="editorial"] .c-actor,
+svg.diagram[data-preset="editorial"] .c-storage { stroke-width: 1; }
+svg.diagram[data-preset="editorial"] .c-region { fill: transparent; stroke-dasharray: none; stroke-width: 1; }
+svg.diagram[data-preset="editorial"] .c-lane { fill: transparent; stroke-dasharray: none; stroke-width: 1; }
+svg.diagram[data-preset="editorial"] .t-primary { letter-spacing: 0.06em; }
+svg.diagram[data-preset="editorial"] .a-label { fill: var(--text-muted); }
