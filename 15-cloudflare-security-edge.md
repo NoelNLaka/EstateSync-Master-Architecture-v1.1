@@ -1,5 +1,21 @@
 # 15 — Cloudflare Security Edge Architecture
 
+> **Status: target architecture, not yet deployed (as of 2026-09-18).**
+>
+> Nothing in this repository records a completed rollout, document 20 is an
+> *implementation checklist* and document 21 is a *feasibility study* — both of
+> which describe work still to be done. A request to the reference
+> implementation's public hostname returns `Server: Vercel` with no `cf-ray`
+> header, so no Cloudflare edge is in front of it.
+>
+> Read the Cloudflare documents (15-21) as the design to build, not as controls
+> currently protecting traffic. The distinction matters: believing a WAF is in
+> front of an application that has none is worse than knowing it is unprotected,
+> because it stops anyone adding one.
+>
+> When the document 20 checklist is completed, change this banner rather than
+> deleting it, and record the date and the surfaces actually covered.
+
 Cloudflare is the perimeter/security layer. It protects public traffic before it reaches Vercel or Supabase. Supabase Auth establishes identity and PostgreSQL RLS remains the authoritative tenant-authorization boundary.
 
 ```text

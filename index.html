@@ -730,11 +730,16 @@ html[data-present="true"] .stage { height: 100vh; border: 0; }
     <div class="eyebrow">Architecture reference &middot; v1.1</div>
     <h1>EstateSync &mdash; Master SaaS Architecture</h1>
     <p class="subtitle">
-      A multi-tenant property-management platform protected by a <strong>Cloudflare security
-      edge</strong> in front and <strong>PostgreSQL RLS</strong> at the bottom. Cloudflare
-      decides whether traffic should reach the application; Supabase Auth decides who the user
-      is; RLS decides which rows they may touch. The fifteen diagrams below trace what that
-      separation implies.
+      A multi-tenant property-management platform with <strong>PostgreSQL RLS</strong> as its
+      authoritative authorization boundary, and a <strong>Cloudflare security edge</strong>
+      designed to sit in front of it. Cloudflare would decide whether traffic should reach the
+      application; Supabase Auth decides who the user is; RLS decides which rows they may touch.
+      The fifteen diagrams below trace what that separation implies.
+    </p>
+    <p class="subtitle">
+      <strong>The RLS layer is live. The Cloudflare edge is not yet deployed</strong> &mdash; it
+      is the target state described by documents 15&ndash;21, whose rollout checklist has not been
+      recorded as completed.
     </p>
     <div class="header-links">
       <a href="#diagrams">Jump to diagrams</a>
@@ -991,12 +996,15 @@ html[data-present="true"] .stage { height: 100vh; border: 0; }
     </div>
     <div class="panel">
       <p>
-        <strong>Added in v1.1.</strong> A Cloudflare security edge now sits in front of the
-        public surface. Cloudflare is the <strong>perimeter</strong> security layer; PostgreSQL
-        RLS remains the <strong>authoritative</strong> multi-tenant authorization boundary. The
-        control chain runs Internet &rarr; Cloudflare &rarr; Vercel / Supabase &rarr; Supabase Auth
-        &rarr; application authorization &rarr; PostgreSQL RLS &rarr; database constraints &rarr;
-        audit and monitoring.
+        <strong>Added in v1.1 as a design, not as a deployed control.</strong> A Cloudflare
+        security edge is specified to sit in front of the public surface; as of 2026-09-18 it is
+        not in place, and a request to the application&rsquo;s hostname is answered directly by
+        Vercel. Cloudflare is the intended <strong>perimeter</strong> layer; PostgreSQL RLS is
+        today the <strong>authoritative</strong> multi-tenant authorization boundary and the only
+        one actually enforcing. The designed control chain runs Internet &rarr; Cloudflare &rarr;
+        Vercel / Supabase &rarr; Supabase Auth &rarr; application authorization &rarr; PostgreSQL
+        RLS &rarr; database constraints &rarr; audit and monitoring; today it runs without the
+        second hop.
       </p>
     </div>
   </section>
@@ -1336,13 +1344,20 @@ html[data-present="true"] .stage { height: 100vh; border: 0; }
     <p class="section-lede">Half of the required gates interrogate the schema rather than the application code.</p>
     <div class="panel">
       <p>
-        <strong>Pull requests pass through lint, unit tests, a build, migration validation,
-        dependency and security scanning, integration tests, RLS coverage and tenant
-        isolation</strong> before anything reaches staging. The last two are properties of the
-        database, not of the code: <code>rls-coverage</code> asserts every tenant-owned public
-        table has RLS enabled, a policy, the required grants and the tenancy column;
-        <code>tenant-isolation</code> plants rows for two organizations and proves under RLS that
-        neither can read the other&rsquo;s, then rolls the transaction back.
+        <strong>Pull requests pass through lint and typecheck, unit tests, a build, migration
+        validation, secret scanning, edge-function authorization, workflow hardening, RLS
+        coverage and tenant isolation</strong> before anything reaches staging. The last two are
+        properties of the database, not of the code: <code>rls-coverage</code> asserts every
+        tenant-owned public table has RLS enabled, a policy, the required grants and the tenancy
+        column; <code>tenant-isolation</code> plants rows for two organizations and proves under
+        RLS that neither can read the other&rsquo;s, then rolls the transaction back.
+      </p>
+      <p>
+        <strong>Not implemented, and listed so the gap stays visible:</strong> dependency and
+        supply-chain scanning &mdash; there is no Dependabot, Trivy or <code>npm audit</code>
+        gate. Secret scanning is in place and is a different control: it finds credentials
+        committed to the repository, not vulnerable packages. Integration testing is partial,
+        and automated code review is configured but dormant.
       </p>
       <p>
         Migrations are forward-only and production migration is automated and auditable. Secrets
@@ -1350,11 +1365,22 @@ html[data-present="true"] .stage { height: 100vh; border: 0; }
         database password. A failed deployment has to be observable and reversible.
       </p>
       <p>
-        Outside the pull-request path, on a schedule: nightly backups, restore drills, dependency
-        and security monitoring, staging error monitoring, and periodic access review. Monitoring
+        Outside the pull-request path, on a schedule: nightly encrypted backups, weekly restore
+        drills that prove the backup is recoverable rather than merely produced, daily
+        security-posture monitoring, and staging error monitoring every six hours. Monitoring
         covers application and database errors, authentication failures, Edge Function failures,
         payment and webhook failures, storage failures, abnormal authorization failures, and
-        backup or restore-test failures.
+        backup or restore-test failures. <strong>Dependency monitoring and periodic access
+        review are not implemented.</strong>
+      </p>
+      <p>
+        One failure mode is worth recording because it shaped the monitoring design. Between 5
+        and 18 September 2026 the nightly backup failed every night: the dump and the encryption
+        succeeded and only the artifact upload failed, because a storage quota shared
+        account-wide with unrelated builds was full. Every step the job could report on looked
+        healthy, so nothing raised it for fourteen nights. The posture monitor now checks for the
+        backup artifact itself &mdash; <em>a control whose output stops appearing has to be
+        detected by its output, not by the exit status of the job meant to produce it.</em>
       </p>
       <p>
         <code>audit_logs</code> captures organization, table, record, action, previous and new
