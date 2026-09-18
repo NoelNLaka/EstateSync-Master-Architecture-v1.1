@@ -6,10 +6,15 @@
 > reference implementation. Secret scanning does (gitleaks and GitGuardian), and
 > that is a different control: it finds credentials committed to the repository,
 > not vulnerable packages. `periodic access review` was listed and does not
-> exist either. Those three are now marked as **not implemented** rather than
+> exist either. Those three were marked as **not implemented** rather than
 > described in the present tense. An architecture document that claims coverage
 > the system does not have is worse than one that omits it, because it stops
 > anyone looking.
+>
+> **Update (2026-09-18):** dependency scanning has since been built and is now
+> listed as a gate below. The gap was written down rather than deleted, and it
+> was closed a day later — which is the argument for writing gaps down.
+> Integration tests and periodic access review remain absent.
 
 ## Pull request gates
 
@@ -25,6 +30,7 @@ Pull Request
      ├── RLS coverage            rls-coverage (TI-1)
      ├── tenant isolation        tenant-isolation (TI-7/TI-8)
      ├── secret scanning         secret-scan (gitleaks, full history) + GitGuardian
+     ├── dependency audit        dependency-audit (check-dependencies.mjs)
      ├── edge function authz     function-authz (AZ-3)
      └── workflow hardening      workflow-hardening (SC-10)
              │
@@ -42,13 +48,36 @@ Pull Request
 
 | Gate | Status |
 |---|---|
-| Dependency / supply-chain scanning | **Absent.** No Dependabot, Trivy, `npm audit` gate or equivalent. Secret scanning is not a substitute. |
 | Integration tests | **Partial.** Edge-function authorization is asserted statically; there is no integration suite against a seeded database. |
 | Automated code review | Configured (`claude-review`) but **dormant** until an API key or OAuth token is set. |
+| Periodic access review | **Absent.** No scheduled review of org membership, roles or token scopes. |
 
-Adding dependency scanning is small — a `dependabot.yml`, or `npm audit`
-wired into the existing lint workflow. It is listed here as absent rather than
-quietly dropped so the gap stays visible.
+### Dependency scanning — implemented 2026-09-18
+
+`check-dependencies.mjs` audits all three workspaces (root, `app`, `app-native`)
+on dependency-touching pull requests, on push to `main`, and daily at 05:00 UTC.
+`.github/dependabot.yml` opens the upgrades as pull requests, monthly and
+grouped, with per-ecosystem caps sized to one reviewer.
+
+**It blocks on `critical`, not `high`, and that is deliberate.** Measured when it
+landed: zero critical anywhere; `app-native` carried twelve high, and every one
+was Expo's build toolchain — `@expo/cli`, `metro`, `metro-config`,
+`@expo/prebuild-config` and their transitive dependencies. None of it ships
+inside the APK, and none is fixable without upgrading Expo itself, which
+`npm audit fix --force` would do by breaking the build.
+
+A gate that is red on the day it lands, over findings nobody can act on, gets
+ignored — and its red then hides a real one. High and moderate are recorded in
+the log and the run summary instead. `DEPENDENCY_FAIL_LEVEL` raises the
+threshold to `high` once that toolchain is clean, at which point the stricter
+bar becomes meaningful rather than permanently breached.
+
+Two properties worth knowing before trusting its output: `npm audit` queries the
+registry live, so it is retried once and **fails closed** if it still cannot run
+— "could not verify" is not "nothing found". And its counts are not stable run
+to run; the same dependency tree reported twelve high and then forty-eight high
+minutes apart, because the advisory database moves under it. The non-blocking
+numbers are an observation, not a metric.
 
 ## Database-specific gates
 

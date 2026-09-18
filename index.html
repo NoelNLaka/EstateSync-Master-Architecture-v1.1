@@ -1345,19 +1345,25 @@ html[data-present="true"] .stage { height: 100vh; border: 0; }
     <div class="panel">
       <p>
         <strong>Pull requests pass through lint and typecheck, unit tests, a build, migration
-        validation, secret scanning, edge-function authorization, workflow hardening, RLS
-        coverage and tenant isolation</strong> before anything reaches staging. The last two are
+        validation, secret scanning, a dependency audit, edge-function authorization, workflow
+        hardening, RLS coverage and tenant isolation</strong> before anything reaches staging. The last two are
         properties of the database, not of the code: <code>rls-coverage</code> asserts every
         tenant-owned public table has RLS enabled, a policy, the required grants and the tenancy
         column; <code>tenant-isolation</code> plants rows for two organizations and proves under
         RLS that neither can read the other&rsquo;s, then rolls the transaction back.
       </p>
       <p>
-        <strong>Not implemented, and listed so the gap stays visible:</strong> dependency and
-        supply-chain scanning &mdash; there is no Dependabot, Trivy or <code>npm audit</code>
-        gate. Secret scanning is in place and is a different control: it finds credentials
-        committed to the repository, not vulnerable packages. Integration testing is partial,
-        and automated code review is configured but dormant.
+        <strong>Dependency scanning was added on 2026-09-18</strong>, closing a gap this page
+        had been asserting was already closed. It blocks on <code>critical</code> rather than
+        <code>high</code>, deliberately: every current high is Expo&rsquo;s build toolchain, none
+        of it ships inside the APK and none is fixable without breaking the build, and a gate
+        that is red from the day it lands over findings nobody can act on gets ignored &mdash;
+        after which its red hides a real one. Highs are recorded rather than swallowed.
+      </p>
+      <p>
+        <strong>Still not implemented, and listed so the gaps stay visible:</strong> integration
+        testing is partial, automated code review is configured but dormant, and there is no
+        periodic review of org membership, roles or token scopes.
       </p>
       <p>
         Migrations are forward-only and production migration is automated and auditable. Secrets
@@ -1370,8 +1376,8 @@ html[data-present="true"] .stage { height: 100vh; border: 0; }
         security-posture monitoring, and staging error monitoring every six hours. Monitoring
         covers application and database errors, authentication failures, Edge Function failures,
         payment and webhook failures, storage failures, abnormal authorization failures, and
-        backup or restore-test failures. <strong>Dependency monitoring and periodic access
-        review are not implemented.</strong>
+        backup or restore-test failures. The dependency audit also runs daily at 05:00.
+        <strong>Periodic access review is not implemented.</strong>
       </p>
       <p>
         One failure mode is worth recording because it shaped the monitoring design. Between 5
